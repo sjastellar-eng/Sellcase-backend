@@ -4,7 +4,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app import models
+from app.models import WatchItem
 
 router = APIRouter(prefix="/watchlist", tags=["Watchlist"])
 
