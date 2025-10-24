@@ -1,4 +1,6 @@
+# app/routers/leads.py
 from typing import Optional
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -8,7 +10,8 @@ from app.models import Lead
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
 
-# Схема запроса (ожидаем JSON)
+
+# Модель входящего запроса (ожидаем JSON)
 class LeadCreate(BaseModel):
     name: str
     phone: str
@@ -17,9 +20,10 @@ class LeadCreate(BaseModel):
     utm_campaign: Optional[str] = None
     message: Optional[str] = None
 
+
 @router.post("/")
 def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
-    lead = models.Lead(
+    lead = Lead(
         name=payload.name,
         phone=payload.phone,
         utm_source=payload.utm_source,
