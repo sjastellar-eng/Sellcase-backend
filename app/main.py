@@ -1,7 +1,8 @@
 # app/main.py
 from fastapi import FastAPI
 from app.db import Base, engine
-from app.routers import leads, watchlist
+from app.routers import leads
+# from app.routers import  watchlist
 
 # ВАЖНО: явно подгружаем модуль с моделями,
 # чтобы SQLAlchemy "увидел" их перед create_all
@@ -20,4 +21,4 @@ def health():
 
 # роутеры
 app.include_router(leads.router)
-app.include_router(watchlist.router)
+# app.include_router(watchlist.router)
