@@ -5,30 +5,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db import Base, engine
 import importlib
 
-# 🔹 Подгружаем модели, чтобы SQLAlchemy увидел таблицы перед create_all
+# 🔹 Загружаем модели, чтобы SQLAlchemy видел таблицы
 importlib.import_module("app.models")
 
-# 🔹 Создаём таблицы (если их нет)
+# 🔹 Создаём таблицы
 Base.metadata.create_all(bind=engine)
 
-# 🔹 Инициализация FastAPI приложения
+# 🔹 Инициализация FastAPI
 app = FastAPI(title="SellCase API", version="1.0.0")
 
-# 🔹 Разрешаем запросы с любых источников (CORS)
+# 🔹 Разрешаем CORS до подключения роутеров
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # позже можно ограничить, например ["https://sellcase.site"]
+    allow_origins=["*"],          # можно заменить на домен лендинга позже
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 🔹 Эндпоинт для проверки статуса
+# 🔹 Проверка доступности
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-# 🔹 Импортируем роутер с лидами
+# 🔹 Импортируем роутер для лидов
 from app.routers.leads import router as leads_router
 
 # 🔹 Подключаем роутер
