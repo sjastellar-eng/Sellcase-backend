@@ -8,16 +8,20 @@ import importlib
 # 🔹 Загружаем модели, чтобы SQLAlchemy видел таблицы
 importlib.import_module("app.models")
 
-# 🔹 Создаём таблицы
+# 🔹 Создаём таблицы (если их нет)
 Base.metadata.create_all(bind=engine)
 
 # 🔹 Инициализация FastAPI
 app = FastAPI(title="SellCase API", version="1.0.0")
 
-# 🔹 Разрешаем CORS до подключения роутеров
+# 🔹 Разрешаем CORS только для твоего домена
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # можно заменить на домен лендинга позже
+    allow_origins=[
+        "https://sellcase.net",        # твой домен
+        "https://www.sellcase.net",    # вариант с www
+        "https://sellcase-backend.onrender.com"  # backend-домен для тестов
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
