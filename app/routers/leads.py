@@ -31,3 +31,19 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(lead)
     return {"status": "success", "lead_id": lead.id}
+# Получение всех лидов
+@router.get("/all")
+def get_all_leads(db: Session = Depends(get_db)):
+    leads = db.query(Lead).all()
+    return [
+        {
+            "id": lead.id,
+            "name": lead.name,
+            "phone": lead.phone,
+            "utm_source": lead.utm_source,
+            "utm_medium": lead.utm_medium,
+            "utm_campaign": lead.utm_campaign,
+            "message": lead.message
+        }
+        for lead in leads
+    ]
