@@ -14,7 +14,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'a
 from db import Base
 from models import *
 
-# URL БД
+# URL БД из .env
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Alembic config
