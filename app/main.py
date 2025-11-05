@@ -27,7 +27,9 @@ app.add_middleware(
 )
 
 # Импортируем и подключаем роутеры
-from app.routers import leads, health
+
+from app.routers import leads, health, metrics
 
 app.include_router(health.router)
 app.include_router(leads.router)
+app.include_router(metrics.router)
