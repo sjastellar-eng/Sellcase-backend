@@ -1,3 +1,25 @@
+import os
+from logging.config import fileConfig
+from sqlalchemy import engine_from_config, pool
+from alembic import context
+
+# 1) читаем URL из .env/окружения или из app.config
+DB_URL = os.getenv("DATABASE_URL")
+if not DB_URL:
+    # попытка импортнуть из приложения (если есть app/config.py)
+    try:
+        from app.config import DB_URL as CFG_DB_URL
+        DB_URL = CFG_DB_URL
+    except Exception:
+        DB_URL = "sqlite:///./sellcase.db"  # запасной вариант
+
+config = context.config
+fileConfig(config.config_file_name)
+
+# 2) подставляем url в конфиг alembic
+config.set_main_option("sqlalchemy.url", DB_URL)
+
+# остальной стандартный код env.py не трогаем
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
