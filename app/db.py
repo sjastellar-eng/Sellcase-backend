@@ -1,18 +1,19 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# База лежит рядом с backend/run_server.py как sellcase.db
-SQLALCHEMY_DATABASE_URL = "sqlite:///./sellcase.db"
+# 1) Берём URL из переменной окружения (для Render/Docker)
+# 2) Фолбэк — локальный SQLite (как у тебя сейчас), чтобы ничего не сломалось
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sellcase.db")
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False}  # обязательно для SQLite + FastAPI
-)
+# Для SQLite нужен спец-параметр; для Postgres — нет
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, future=True, connect_args=connect_args)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
 Base = declarative_base()
 
-# зависимость для роутов
+# Зависимость для роутов FastAPI
 def get_db():
     db = SessionLocal()
     try:
