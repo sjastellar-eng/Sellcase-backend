@@ -28,7 +28,7 @@ app.add_middleware(
 
 # Импортируем и подключаем роутеры
 
-from app.routers import leads, health, metrics
+from app.routers import leads, health, metrics, olx_projects
 
 app.include_router(health.router)
 app.include_router(leads.router)
