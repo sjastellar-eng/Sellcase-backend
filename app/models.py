@@ -26,3 +26,47 @@ class Lead(Base):
 
     def __repr__(self) -> str:
         return f"<Lead id={self.id} name={self.name!r} phone={self.phone!r}>"
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    full_name = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<User id={self.id} email={self.email!r}>"
+
+
+class OlxProject(Base):
+    __tablename__ = "olx_projects"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    name = Column(String, nullable=False)
+    search_url = Column(String, nullable=False)  # ссылка или поисковой URL OLX
+    notes = Column(String, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<OlxProject id={self.id} name={self.name!r}>"
+
+
+class OlxSnapshot(Base):
+    __tablename__ = "olx_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("olx_projects.id"), nullable=False, index=True)
+    taken_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    items_count = Column(Integer, nullable=False, default=0)
+    avg_price = Column(Float, nullable=True)
+    min_price = Column(Float, nullable=True)
+    max_price = Column(Float, nullable=True)
+
+    raw_json = Column(Text, nullable=True)  # сюда потом можно класть сырой ответ парсера
+
+    def __repr__(self) -> str:
+        return f"<OlxSnapshot id={self.id} project_id={self.project_id}>"
