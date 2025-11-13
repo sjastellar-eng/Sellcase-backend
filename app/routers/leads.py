@@ -1,4 +1,5 @@
 # app/routers/leads.py
+from app.services.notify import send_lead_to_telegram
 from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -35,11 +36,16 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
         utm_campaign=payload.utm_campaign,
         utm_content=payload.utm_content,
         utm_term=payload.utm_term,
-        message=payload.message
+        message=payload.message,
     )
+
     db.add(lead)
     db.commit()
     db.refresh(lead)
+
+    # 🔔 отправляем уведомление в Telegram
+    send_lead_to_telegram(lead)
+
     return {"status": "success", "lead_id": lead.id}
 
 @router.get("/all")
