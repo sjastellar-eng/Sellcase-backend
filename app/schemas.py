@@ -19,6 +19,40 @@ class LeadIn(BaseModel):
 class LeadOut(LeadIn):
     id: int
     created_at: datetime
+from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel
 
+
+class OlxProjectBase(BaseModel):
+    name: str
+    search_url: str
+    notes: Optional[str] = None
+
+
+class OlxProjectCreate(OlxProjectBase):
+    pass
+
+
+class OlxProjectOut(OlxProjectBase):
+    id: int
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class OlxSnapshotOut(BaseModel):
+    id: int
+    project_id: int
+    taken_at: datetime
+    items_count: int
+    avg_price: Optional[float] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+
+    class Config:
+        orm_mode = True
     class Config:
         from_attributes = True
