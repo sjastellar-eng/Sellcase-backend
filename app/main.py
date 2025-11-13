@@ -33,3 +33,4 @@ from app.routers import leads, health, metrics, olx_projects
 app.include_router(health.router)
 app.include_router(leads.router)
 app.include_router(metrics.router)
+app.include_router(olx_projects.router)
