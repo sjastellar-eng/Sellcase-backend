@@ -9,7 +9,8 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sellcase.db")
 # Для SQLite нужен спец-параметр; для Postgres — нет
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True, future=True, connect_args=connect_args)
+DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
 Base = declarative_base()
 
