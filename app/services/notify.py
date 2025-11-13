@@ -1,9 +1,51 @@
-import httpx
-from app.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+import os
+import json
+from urllib import request
 
-async def send_message(text: str, parse_mode: str = "HTML"):
-    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
+from app.models import Lead
+
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+
+def send_lead_to_telegram(lead: Lead) -> None:
+    """
+    Отправляет информацию о лиде в Telegram.
+    Не бросает исключения наружу, только пишет в логи.
+    """
+    if not BOT_TOKEN or not CHAT_ID:
+        print("Telegram env vars are not set, skipping notification")
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    async with httpx.AsyncClient(timeout=10) as client:
-        await client.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": parse_mode})
+
+    text_lines = [
+        "🆕 Новый лид SellCase",
+        "",
+        f"👤 Имя: {lead.name or '-'}",
+        f"📱 Телефон: {lead.phone or '-'}",
+        f"✉️ Email: {lead.email or '-'}",
+        "",
+        f"📄 Страница: {lead.page or '-'}",
+        f"🧾 Форма: {lead.form_name or '-'}",
+        "",
+        f"UTM source: {lead.utm_source or '-'}",
+        f"UTM medium: {lead.utm_medium or '-'}",
+        f"UTM campaign: {lead.utm_campaign or '-'}",
+        f"UTM content: {lead.utm_content or '-'}",
+        f"UTM term: {lead.utm_term or '-'}",
+    ]
+
+    text = "\n".join(text_lines)
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": text}
+
+    data = json.dumps(payload).encode("utf-8")
+    req = request.Request(url, data=data, headers={"Content-Type": "application/json"})
+
+    try:
+        with request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode("utf-8")
+            print("Telegram response:", resp.status, body)
+    except Exception as e:
+        # Тут ошибка не ломает API, только пишем в логи
+        print("Error sending Telegram notification:", repr(e))
