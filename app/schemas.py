@@ -15,6 +15,7 @@ class LeadIn(BaseModel):
     page: Optional[str] = None
     message: Optional[str] = None
     raw: Optional[Dict[str, Any]] = None
+    
 # ---------- Users ----------
 
 class UserBase(BaseModel):
