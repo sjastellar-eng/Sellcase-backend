@@ -16,19 +16,27 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 @router.post("/register", response_model=schemas.UserOut)
 def register(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(models.User).filter(models.User.email == user_in.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    user = models.User(
-        email=user_in.email,
-        full_name=user_in.full_name,
-        hashed_password=hash_password(user_in.password),
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+    try:
+        existing = (
+            db.query(models.User)
+            .filter(models.User.email == user_in.email)
+            .first()
+        )
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
+
+        user = models.User(
+            email=user_in.email,
+            full_name=user_in.full_name,
+            hashed_password=hash_password(user_in.password),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+    except Exception as e:
+        # ВРЕМЕННО для отладки, потом уберём
+        raise HTTPException(status_code=500, detail=f"Register error: {e}")
 
 
 @router.post("/login")
