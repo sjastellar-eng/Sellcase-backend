@@ -15,7 +15,24 @@ class LeadIn(BaseModel):
     page: Optional[str] = None
     message: Optional[str] = None
     raw: Optional[Dict[str, Any]] = None
+# ---------- Users ----------
 
+class UserBase(BaseModel):
+    email: str
+    full_name: Optional[str] = None
+
+
+class UserCreate(UserBase):
+    password: str
+
+
+class UserOut(UserBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+        
 class LeadOut(LeadIn):
     id: int
     created_at: datetime
@@ -53,6 +70,7 @@ class OlxSnapshotOut(BaseModel):
     max_price: Optional[float] = None
 
     class Config:
-        orm_mode = True
-    class Config:
+        # для Pydantic v2
         from_attributes = True
+        # если хочешь, можно оставить и это (для совместимости)
+        orm_mode = True
