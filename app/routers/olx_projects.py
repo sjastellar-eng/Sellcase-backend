@@ -1,9 +1,10 @@
 # app/routers/olx_projects.py
+from app.services.auth import get_current_user
+from app import models
+from fastapi import Depends
 from typing import List
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-
 from app.db import get_db
 from app.models import OlxProject, OlxSnapshot
 from app.schemas import OlxProjectCreate, OlxProjectOut, OlxSnapshotOut
@@ -25,11 +26,14 @@ def create_project(payload: OlxProjectCreate, db: Session = Depends(get_db)):
     db.refresh(project)
     return project
 
-
 @router.get("/", response_model=List[OlxProjectOut])
-def list_projects(db: Session = Depends(get_db)):
+def list_projects(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     projects = (
         db.query(OlxProject)
+        .filter(OlxProject.user_id == current_user.id)
         .order_by(OlxProject.id.desc())
         .all()
     )
