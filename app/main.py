@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.db import Base, engine
+from app.routers import auth
 import importlib
 
 # Загружаем модели, чтобы SQLAlchemy видел таблицы
@@ -34,3 +35,4 @@ app.include_router(health.router)
 app.include_router(leads.router)
 app.include_router(metrics.router)
 app.include_router(olx_projects.router)
+app.include_router(auth.router)
