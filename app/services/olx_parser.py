@@ -19,28 +19,47 @@ HEADERS = {
 }
 
 
-async def fetch_olx_data(search_url: str) -> Optional[Dict[str, int]]:
+def _empty_stats(reason: str) -> Dict[str, int]:
+    # На будущее: reason будет видно в логах
+    print(f"[OLX] return empty stats, reason={reason}")
+    return {
+        "items_count": 0,
+        "avg_price": 0,
+        "min_price": 0,
+        "max_price": 0,
+    }
+
+
+def extract_price(text: str) -> Optional[int]:
+    """
+    Извлекает число из строки вида '1 200 грн' или '12,500 UAH' и т.п.
+    Оставляем только цифры.
+    """
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return int(digits) if digits else None
+
+
+async def fetch_olx_data(search_url: str) -> Dict[str, int]:
     """
     Забирает страницу поиска OLX и пытается вытащить цены всех объявлений.
-    Возвращает словарь с items_count / min / max / avg или None, если ничего
-    не удалось распарсить.
+    Возвращает словарь с items_count / min / max / avg.
+    В ЛЮБОМ случае возвращает словарь (даже если ничего не распарсили).
     """
 
     # 1. HTTP-запрос
     try:
         async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
             resp = await client.get(search_url)
-        resp.raise_for_status()
+            resp.raise_for_status()
     except httpx.HTTPError as e:
-        # в логах Render увидим причину
         print(f"[OLX] HTTP error: {e}")
-        return None
+        return _empty_stats("http-error")
 
     html = resp.text
     soup = BeautifulSoup(html, "html.parser")
 
     # 2. Находим карточки объявлений
-    # На OLX чаще всего карточки имеют data-cy="l-card"
+    # Чаще всего: data-cy="l-card"
     cards = soup.select('div[data-cy="l-card"]')
 
     # запасной вариант — вдруг разметка другая
@@ -49,50 +68,31 @@ async def fetch_olx_data(search_url: str) -> Optional[Dict[str, int]]:
 
     if not cards:
         print("[OLX] No cards found on page")
-        return None
+        return _empty_stats("no-cards")
 
     prices: list[int] = []
 
+    # 3. Пытаемся достать цену из карточки
     for card in cards:
-        # 3. Пытаемся достать элемент с ценой
-        price_el = (
-            card.select_one('[data-testid="ad-price"]')
-            or card.select_one("p[data-testid='ad-price']")
-            or card.select_one("span[data-testid='ad-price']")
-        )
-
-        text = ""
-        if price_el:
-            text = price_el.get_text(" ", strip=True)
-        else:
-            # fallback: смотрим весь текст карточки
-            text = card.get_text(" ", strip=True)
-
-        # 4. Вытаскиваем первое «число с пробелами», например "12 500"
-        match = re.search(r"\d[\d\s]{1,15}", text)
-        if not match:
-            continue
-
-        number_str = match.group(0).replace(" ", "").replace("\u00a0", "")
-        try:
-            value = int(number_str)
-        except ValueError:
-            continue
-
-        prices.append(value)
+        # Берём весь текст карточки и вытаскиваем из него число
+        text = card.get_text(" ", strip=True)
+        value = extract_price(text)
+        if value is not None:
+            prices.append(value)
 
     if not prices:
         print("[OLX] No prices parsed from cards")
-        return None
+        return _empty_stats("no-prices")
 
+    # 4. Считаем статистику
     items_count = len(prices)
     min_price = min(prices)
     max_price = max(prices)
-    avg_price = sum(prices) // items_count
+    avg_price = round(sum(prices) / items_count, 2)
 
     return {
         "items_count": items_count,
+        "avg_price": avg_price,
         "min_price": min_price,
         "max_price": max_price,
-        "avg_price": avg_price,
     }
