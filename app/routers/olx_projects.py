@@ -32,22 +32,29 @@ def create_project(
     db.refresh(project)
     return project
 
-@router.get("/", response_model=List[OlxProjectOut])
-def list_projects(
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-):
-    projects = (
-        db.query(OlxProject)
-        .filter(OlxProject.user_id == current_user.id)
-        .order_by(OlxProject.id.desc())
-        .all()
-    )
-    return projects
-
-
 @router.get("/{project_id}/snapshots", response_model=List[OlxSnapshotOut])
-def list_snapshots(project_id: int, db: Session = Depends(get_db)):
+def list_snapshots(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # 1) Проверяем, что проект принадлежит текущему пользователю
+    project = (
+        db.query(OlxProject)
+        .filter(
+            OlxProject.id == project_id,
+            OlxProject.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not project:
+        # либо проект чужой, либо его нет
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    # 2) Отдаём снапшоты только этого проекта
     snapshots = (
         db.query(OlxSnapshot)
         .filter(OlxSnapshot.project_id == project_id)
