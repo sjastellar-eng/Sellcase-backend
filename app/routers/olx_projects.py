@@ -11,6 +11,8 @@ from app.db import get_db
 from app.models import OlxProject, OlxSnapshot
 from app.schemas import OlxProjectCreate, OlxProjectOut, OlxSnapshotOut
 
+from app.services.olx_parser import fetch_olx_data
+
 router = APIRouter(prefix="/olx/projects", tags=["OLX Projects"])
 
 
