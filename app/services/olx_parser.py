@@ -32,11 +32,36 @@ def _empty_stats(reason: str) -> Dict[str, int]:
 
 def extract_price(text: str) -> Optional[int]:
     """
-    Извлекает число из строки вида '1 200 грн' или '12,500 UAH' и т.п.
-    Оставляем только цифры.
+    Извлекает адекватную цену из текста карточки OLX.
     """
-    digits = "".join(ch for ch in text if ch.isdigit())
-    return int(digits) if digits else None
+
+    # 1. Ищем число рядом с гривной
+    match = re.search(
+        r"(\d{1,3}(?:[\s\u00a0]\d{3}){0,3})\s*(?:грн|₴|uah)",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        # 2. fallback — любое нормальное число (2–7 цифр)
+        match = re.search(r"\d{2,7}", text)
+
+    if not match:
+        return None
+
+    number_str = match.group(1 if match.lastindex else 0)
+    number_str = number_str.replace(" ", "").replace("\u00a0", "")
+
+    try:
+        value = int(number_str)
+    except ValueError:
+        return None
+
+    # 3. фильтруем невозможные значения
+    if value < 10 or value > 10_000_000:
+        return None
+
+    return value
 
 
 async def fetch_olx_data(search_url: str) -> Dict[str, int]:
