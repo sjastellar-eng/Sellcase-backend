@@ -76,4 +76,40 @@ def list_snapshots(
         .limit(200)
         .all()
     )
-    return snapshots
+    @router.post("/{project_id}/refresh")
+async def refresh_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    from app.services.olx_parser import fetch_olx_data
+
+    # Проверяем владельца проекта
+    project = (
+        db.query(OlxProject)
+        .filter(OlxProject.id == project_id, OlxProject.user_id == current_user.id)
+        .first()
+    )
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Запрашиваем данные OLX
+    stats = await fetch_olx_data(project.search_url)
+
+    if not stats:
+        raise HTTPException(status_code=400, detail="Failed to parse OLX")
+
+    snapshot = OlxSnapshot(
+        project_id=project.id,
+        items_count=stats["items_count"],
+        min_price=stats["min_price"],
+        max_price=stats["max_price"],
+        avg_price=stats["avg_price"],
+    )
+
+    db.add(snapshot)
+    db.commit()
+    db.refresh(snapshot)
+
+    return {"status": "ok", "snapshot_id": snapshot.id}
