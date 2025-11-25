@@ -95,25 +95,4 @@ async def fetch_olx_data(search_url: str) -> Optional[Dict[str, int]]:
         "min_price": min_price,
         "max_price": max_price,
         "avg_price": avg_price,
-    }                "min_price": 0,
-                "max_price": 0,
-            }
-
-        return {
-            "items_count": len(prices),
-            "avg_price": round(sum(prices) / len(prices), 2),
-            "min_price": min(prices),
-            "max_price": max(prices),
-        }
-
-    except Exception as e:
-        print("Parse error:", e)
-        return None
-
-
-def extract_price(text: str) -> Optional[int]:
-    """
-    Извлекает число из строки вида '1 200 грн'.
-    """
-    digits = "".join(ch for ch in text if ch.isdigit())
-    return int(digits) if digits else None
+    }
