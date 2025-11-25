@@ -63,6 +63,7 @@ def list_snapshots(
         .first()
     )
     if not project:
+        # либо проект чужой, либо его нет
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
@@ -76,30 +77,40 @@ def list_snapshots(
         .limit(200)
         .all()
     )
-    @router.post("/{project_id}/refresh")
+
+    return snapshots
+
+
+@router.post("/{project_id}/refresh")
 async def refresh_project(
     project_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    from app.services.olx_parser import fetch_olx_data
-
-    # Проверяем владельца проекта
+    # 1) Проверяем, что проект принадлежит текущему пользователю
     project = (
         db.query(OlxProject)
-        .filter(OlxProject.id == project_id, OlxProject.user_id == current_user.id)
+        .filter(
+            OlxProject.id == project_id,
+            OlxProject.user_id == current_user.id,
+        )
         .first()
     )
-
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
 
-    # Запрашиваем данные OLX
+    # 2) Запрашиваем данные OLX
     stats = await fetch_olx_data(project.search_url)
-
     if not stats:
-        raise HTTPException(status_code=400, detail="Failed to parse OLX")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to parse OLX page",
+        )
 
+    # 3) Сохраняем снапшот в БД
     snapshot = OlxSnapshot(
         project_id=project.id,
         items_count=stats["items_count"],
@@ -112,4 +123,5 @@ async def refresh_project(
     db.commit()
     db.refresh(snapshot)
 
+    # 4) Возвращаем статус и id созданного снапшота
     return {"status": "ok", "snapshot_id": snapshot.id}
