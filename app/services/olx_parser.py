@@ -152,11 +152,14 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
 
             resp = await client.get(page_url)
             if resp.status_code != 200:
-                # если на первой странице ошибка — выходим сразу
-        
+    # если на первой странице ошибка — выходим сразу
+    if page == 1:
+        return results
+    break
 
-            html = resp.text
-            soup = BeautifulSoup(html, "html.parser")
+# если статус нормальный — продолжаем
+html = resp.text
+soup = BeautifulSoup(html, "html.parser")
 
         # --- карточки объявлений ---
 cards = soup.select("div[data-cy='l-card']")
