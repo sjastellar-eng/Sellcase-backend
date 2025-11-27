@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 import httpx
 from bs4 import BeautifulSoup
@@ -121,3 +121,116 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
         "min_price": min_price,
         "max_price": max_price,
     }
+
+async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
+    """
+    Глубокий парсер: обходит несколько страниц OLX и возвращает список объявлений.
+    Формат:
+    [
+      {
+        "external_id": "...",
+        "title": "...",
+        "url": "...",
+        "price": 12345,
+        "currency": "UAH",
+        "seller_id": "...",
+        "seller_name": "...",
+        "location": "Київ"
+      },
+      ...
+    ]
+    """
+    results: List[Dict] = []
+
+    async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
+        for page in range(1, max_pages + 1):
+            # аккуратно добавляем &page=, чтобы не ломать существующие параметры
+            if "?" in search_url:
+                page_url = f"{search_url}&page={page}"
+            else:
+                page_url = f"{search_url}?page={page}"
+
+            resp = await client.get(page_url)
+            if resp.status_code != 200:
+                # если на первой странице ошибка — выходим сразу
+                if page == 1:
+                    return results
+                break
+
+            html = resp.text
+            soup = BeautifulSoup(html, "html.parser")
+
+            # карточки объявлений
+            cards = soup.select("div[data-testid='l-card']")
+            if not cards:
+                # если на этой странице карточек нет — дальше смысла нет
+                if page == 1:
+                    return results
+                break
+
+            for idx, card in enumerate(cards, start=1):
+                # --- URL + title ---
+                link_el = (
+                    card.select_one("[data-cy='ad-card-title'] a")
+                    or card.select_one("a")
+                )
+                if not link_el or not link_el.get("href"):
+                    continue
+
+                href = link_el["href"]
+                title = link_el.get_text(" ", strip=True)
+
+                # нормализуем абсолютный URL
+                if href.startswith("//"):
+                    url = "https:" + href
+                elif href.startswith("/"):
+                    url = "https://www.olx.ua" + href
+                else:
+                    url = href
+
+                # --- external_id из URL: ищем кусок вида -IDabc123.html ---
+                m = re.search(r"-ID([A-Za-z0-9]+)\.html", url)
+                if m:
+                    external_id = m.group(1)
+                else:
+                    # fallback: используем сам URL как ID (хуже, но работает)
+                    external_id = url
+
+                # --- location ---
+                loc_el = card.select_one("[data-testid='location-date']")
+                location = None
+                if loc_el:
+                    loc_text = loc_el.get_text(" ", strip=True)
+                    # обычно формат "Київ - Сьогодні 12:34"
+                    location = loc_text.split("-")[0].strip()
+
+                # --- seller (если удастся) ---
+                seller_id = None
+                seller_name = None
+                # Можно позже доработать, пока оставим пустым.
+
+                # --- price ---
+                price_el = card.select_one("[data-testid='ad-price']")
+                if price_el:
+                    price_text = price_el.get_text(" ", strip=True)
+                else:
+                    price_text = card.get_text(" ", strip=True)
+
+                price = extract_price(price_text)
+
+                results.append(
+                    {
+                        "external_id": external_id,
+                        "title": title,
+                        "url": url,
+                        "price": price,
+                        "currency": "UAH",  # пока фиксировано, позже можно парсить
+                        "seller_id": seller_id,
+                        "seller_name": seller_name,
+                        "location": location,
+                        "position": idx,  # позиция в выдаче на этой странице
+                        "page": page,
+                    }
+                )
+
+    return results
