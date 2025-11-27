@@ -151,10 +151,13 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
                 page_url = f"{search_url}?page={page}"
 
             resp = await client.get(page_url)
-            if resp.status_code != 200:
-    # если на первой странице ошибка — выходим сразу
+
+# если статус не 200 — ошибка
+if resp.status_code != 200:
+    # если ошибка на первой странице — возвращаем пустой результат
     if page == 1:
         return results
+    # иначе прекращаем обход следующих страниц
     break
 
 # если статус нормальный — продолжаем
