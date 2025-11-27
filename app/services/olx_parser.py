@@ -160,13 +160,19 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
             html = resp.text
             soup = BeautifulSoup(html, "html.parser")
 
-            # карточки объявлений
+        # --- карточки объявлений (как в рабочем fetch_olx_data) ---
+        cards = soup.select("div[data-cy='l-card']")
+        if not cards:
             cards = soup.select("div[data-testid='l-card']")
-            if not cards:
-                # если на этой странице карточек нет — дальше смысла нет
-                if page == 1:
-                    return results
-                break
+
+        # если и так не нашли — дальше смысла нет
+        if not cards:
+            # для дебага оставим лог
+            print(f"[OLX_ADS] no cards on page={page} url={page_url}")
+            if page == 1:
+                # на первой странице пусто — просто вернём то, что уже есть
+                return results
+            break
 
             for idx, card in enumerate(cards, start=1):
                 # --- URL + title ---
