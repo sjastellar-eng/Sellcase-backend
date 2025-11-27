@@ -132,6 +132,7 @@ from fastapi import Query
 from sqlalchemy import inspect
 from app.db import SessionLocal
 from app.services.olx_parser import fetch_olx_ads
+from pydantic import BaseModel
 
 
 @router.get("/debug/tables")
@@ -139,8 +140,11 @@ def list_tables():
     inspector = inspect(SessionLocal().bind)
     return inspector.get_table_names()
 
+class DebugParseRequest(BaseModel):
+    url: str
+    max_pages: int = 3
 
-@router.get("/debug/parse")
-async def debug_parse(url: str = Query(...)):
-    ads = await fetch_olx_ads(url, max_pages=3)
+@router.post("/debug/parse")
+async def debug_parse(body: DebugParseRequest):
+    ads = await fetch_olx_ads(body.url, max_pages=body.max_pages)
     return ads
