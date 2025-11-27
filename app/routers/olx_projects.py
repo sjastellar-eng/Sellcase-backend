@@ -127,3 +127,20 @@ async def refresh_project(
 
     # 4) Возвращаем статус и id созданного снапшота
     return {"status": "ok", "snapshot_id": snapshot.id}
+
+from fastapi import Query
+from sqlalchemy import inspect
+from app.db import SessionLocal
+from app.services.olx_parser import fetch_olx_ads
+
+
+@router.get("/debug/tables")
+def list_tables():
+    inspector = inspect(SessionLocal().bind)
+    return inspector.get_table_names()
+
+
+@router.get("/debug/parse")
+async def debug_parse(url: str = Query(...)):
+    ads = await fetch_olx_ads(url, max_pages=3)
+    return ads
