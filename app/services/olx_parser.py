@@ -159,6 +159,9 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
 
             # если статус нормальный — продолжаем
             html = resp.text
+            print("\n\n========== OLX RAW HTML START ==========\n")
+            print(html[:5000])  # первые 5000 символов
+            print("\n========== OLX RAW HTML END ==========\n")
             soup = BeautifulSoup(html, "html.parser")
 
             # --- карточки объявлений ---
