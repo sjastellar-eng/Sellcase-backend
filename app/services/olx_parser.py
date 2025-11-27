@@ -122,12 +122,12 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
         "max_price": max_price,
     }
 
-async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
+
+   async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
     """
     Глубокий парсер: обходит несколько страниц OLX и возвращает список объявлений.
-    Формат:
-    [
-      {
+    Формат элемента списка:
+    {
         "external_id": "...",
         "title": "...",
         "url": "...",
@@ -135,10 +135,10 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
         "currency": "UAH",
         "seller_id": "...",
         "seller_name": "...",
-        "location": "Київ"
-      },
-      ...
-    ]
+        "location": "Київ",
+        "position": 1,
+        "page": 1,
+    }
     """
     results: List[Dict] = []
 
@@ -152,29 +152,29 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
 
             resp = await client.get(page_url)
 
-# если статус не 200 — ошибка
-if resp.status_code != 200:
-    # если ошибка на первой странице — возвращаем пустой результат
-    if page == 1:
-        return results
-    # иначе прекращаем обход следующих страниц
-    break
+            # если статус не 200 — ошибка
+            if resp.status_code != 200:
+                # если ошибка на первой странице — возвращаем то, что уже есть
+                if page == 1:
+                    return results
+                # иначе прекращаем обход следующих страниц
+                break
 
-# если статус нормальный — продолжаем
-html = resp.text
-soup = BeautifulSoup(html, "html.parser")
+            # если статус нормальный — продолжаем
+            html = resp.text
+            soup = BeautifulSoup(html, "html.parser")
 
-        # --- карточки объявлений ---
-cards = soup.select("div[data-cy='l-card']")
-if not cards:
-    cards = soup.select("div[data-testid='l-card']")
+            # --- карточки объявлений ---
+            cards = soup.select("div[data-cy='l-card']")
+            if not cards:
+                cards = soup.select("div[data-testid='l-card']")
 
-# если карточек нет — останавливаемся
-if not cards:
-    print(f"[OLX_ADS] no cards on page={page} url={page_url}")
-    if page == 1:
-        return results
-    break
+            # если карточек нет — останавливаемся
+            if not cards:
+                print(f"[OLX_ADS] no cards on page={page} url={page_url}")
+                if page == 1:
+                    return results
+                break
 
             for idx, card in enumerate(cards, start=1):
                 # --- URL + title ---
@@ -201,7 +201,7 @@ if not cards:
                 if m:
                     external_id = m.group(1)
                 else:
-                    # fallback: используем сам URL как ID (хуже, но работает)
+                    # fallback: используем сам URL как ID
                     external_id = url
 
                 # --- location ---
@@ -232,13 +232,13 @@ if not cards:
                         "title": title,
                         "url": url,
                         "price": price,
-                        "currency": "UAH",  # пока фиксировано, позже можно парсить
+                        "currency": "UAH",
                         "seller_id": seller_id,
                         "seller_name": seller_name,
                         "location": location,
-                        "position": idx,  # позиция в выдаче на этой странице
+                        "position": idx,   # позиция в выдаче на этой странице
                         "page": page,
                     }
                 )
 
-    return results
+    return results             
