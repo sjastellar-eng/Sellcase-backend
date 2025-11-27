@@ -63,14 +63,12 @@ def extract_price(text: str) -> Optional[int]:
 
     return value
 
-
 async def fetch_olx_data(search_url: str) -> Dict[str, int]:
     """
     Забирает страницу поиска OLX и пытается вытащить цены всех объявлений.
     Возвращает словарь с items_count / min / max / avg.
     В ЛЮБОМ случае возвращает словарь (даже если ничего не распарсили).
     """
-
     # 1. HTTP-запрос
     try:
         async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
@@ -85,11 +83,10 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
 
     # 2. Находим карточки объявлений
     # Чаще всего: data-cy="l-card"
-    cards = soup.select('div[data-cy="l-card"]')
-
+    cards = soup.select("div[data-cy='l-card']")
     # запасной вариант — вдруг разметка другая
     if not cards:
-        cards = soup.select('div[data-testid="l-card"]')
+        cards = soup.select("div[data-testid='l-card']")
 
     if not cards:
         print("[OLX] No cards found on page")
@@ -123,7 +120,7 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
     }
 
 
-   async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
+async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
     """
     Глубокий парсер: обходит несколько страниц OLX и возвращает список объявлений.
     Формат элемента списка:
@@ -241,4 +238,4 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
                     }
                 )
 
-    return results             
+    return results
