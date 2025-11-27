@@ -119,7 +119,6 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
         "max_price": max_price,
     }
 
-
 async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
     """
     Глубокий парсер: обходит несколько страниц OLX и возвращает список объявлений.
@@ -130,8 +129,8 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
         "url": "...",
         "price": 12345,
         "currency": "UAH",
-        "seller_id": "...",
-        "seller_name": "...",
+        "seller_id": None,
+        "seller_name": None,
         "location": "Київ",
         "position": 1,
         "page": 1,
@@ -141,7 +140,7 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
 
     async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
         for page in range(1, max_pages + 1):
-            # аккуратно добавляем &page=, чтобы не ломать существующие параметры
+            # аккуратно добавляем page=
             if "?" in search_url:
                 page_url = f"{search_url}&page={page}"
             else:
@@ -151,7 +150,7 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
 
             # если статус не 200 — ошибка
             if resp.status_code != 200:
-                # если ошибка на первой странице — возвращаем то, что уже есть
+                # если ошибка на первой странице — возвращаем то, что есть (скорее всего пусто)
                 if page == 1:
                     return results
                 # иначе прекращаем обход следующих страниц
@@ -159,15 +158,11 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
 
             # если статус нормальный — продолжаем
             html = resp.text
-            print("\n\n========== OLX RAW HTML START ==========\n")
-            print(html[:5000])  # первые 5000 символов
-            print("\n========== OLX RAW HTML END ==========\n")
             soup = BeautifulSoup(html, "html.parser")
 
             # --- карточки объявлений ---
-            cards = soup.select("div[data-cy='l-card']")
-            if not cards:
-                cards = soup.select("div[data-testid='l-card']")
+            # мобильная версия: div[data-testid="ad-card"]
+            cards = soup.select("div[data-testid='ad-card']")
 
             # если карточек нет — останавливаемся
             if not cards:
@@ -178,51 +173,49 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
 
             for idx, card in enumerate(cards, start=1):
                 # --- URL + title ---
-                link_el = (
-                    card.select_one("[data-cy='ad-card-title'] a")
-                    or card.select_one("a")
-                )
+                # ссылка на объявление в <a href="...">
+                link_el = card.select_one("a[href]")
                 if not link_el or not link_el.get("href"):
                     continue
 
                 href = link_el["href"]
-                title = link_el.get_text(" ", strip=True)
-
                 # нормализуем абсолютный URL
-                if href.startswith("//"):
-                    url = "https:" + href
-                elif href.startswith("/"):
+                if href.startswith("/"):
                     url = "https://www.olx.ua" + href
-                else:
+                elif href.startswith("https://"):
                     url = href
+                else:
+                    url = "https://www.olx.ua/" + href.lstrip("/")
+
+                # заголовок: пробуем data-testid="ad-title", иначе текст ссылки
+                title_el = card.select_one("[data-testid='ad-title']") or link_el
+                title = title_el.get_text(" ", strip=True)
 
                 # --- external_id из URL: ищем кусок вида -IDabc123.html ---
                 m = re.search(r"-ID([A-Za-z0-9]+)\.html", url)
                 if m:
                     external_id = m.group(1)
                 else:
-                    # fallback: используем сам URL как ID
+                    # fallback: используем сам URL как ID (хуже, но лучше, чем ничего)
                     external_id = url
 
                 # --- location ---
-                loc_el = card.select_one("[data-testid='location-date']")
                 location = None
+                loc_el = card.select_one("[data-testid='location-date']")
                 if loc_el:
                     loc_text = loc_el.get_text(" ", strip=True)
-                    # обычно формат "Київ - Сьогодні 12:34"
+                    # обычно формат "Київ - Сегодня 12:34" → берём часть до тире
                     location = loc_text.split("-")[0].strip()
 
-                # --- seller (если удастся) ---
-                seller_id = None
-                seller_name = None
-                # Можно позже доработать, пока оставим пустым.
-
                 # --- price ---
+                # <div data-testid="priceBlock"><span data-testid="ad-price">...</span>
                 price_el = card.select_one("[data-testid='ad-price']")
                 if price_el:
                     price_text = price_el.get_text(" ", strip=True)
                 else:
-                    price_text = card.get_text(" ", strip=True)
+                    # на всякий случай: возьмём весь блок, если span не нашли
+                    price_block = card.select_one("[data-testid='priceBlock']")
+                    price_text = price_block.get_text(" ", strip=True) if price_block else ""
 
                 price = extract_price(price_text)
 
@@ -232,11 +225,11 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
                         "title": title,
                         "url": url,
                         "price": price,
-                        "currency": "UAH",
-                        "seller_id": seller_id,
-                        "seller_name": seller_name,
+                        "currency": "UAH",  # пока фиксированно, при желании можно распарсить из текста
+                        "seller_id": None,
+                        "seller_name": None,
                         "location": location,
-                        "position": idx,   # позиция в выдаче на этой странице
+                        "position": idx,  # позиция в выдаче на этой странице
                         "page": page,
                     }
                 )
