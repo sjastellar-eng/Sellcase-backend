@@ -128,7 +128,7 @@ async def refresh_project(
     # 4) Возвращаем статус и id созданного снапшота
     return {"status": "ok", "snapshot_id": snapshot.id}
 
-from fastapi import Query
+from fastapi import 
 from sqlalchemy import inspect
 from app.db import SessionLocal
 from app.services.olx_parser import fetch_olx_ads
