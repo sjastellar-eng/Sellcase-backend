@@ -121,19 +121,49 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
 
 async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
     """
-    Новый рабочий парсер под мобильную версию OLX (m.olx.ua)
+    Глубокий парсер: обходит несколько страниц OLX и возвращает список объявлений.
+    Формат элемента списка:
+    {
+        "external_id": "...",
+        "title": "...",
+        "url": "...",
+        "price": 12345,
+        "currency": "UAH",
+        "seller_id": "...",
+        "seller_name": "...",
+        "location": "Київ",
+        "position": 1,
+        "page": 1,
+    }
     """
-
     results: List[Dict] = []
 
     async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
         for page in range(1, max_pages + 1):
+            # --- формируем URL с параметром page ---
+            if "page=" in search_url:
+                # если в URL уже есть page=, то аккуратно его заменим
+                base, _, tail = search_url.partition("page=")
+                tail_parts = tail.split("&", 1)
+                if len(tail_parts) == 2:
+                    # page=<старое>&остальное
+                    _, rest = tail_parts
+                    page_url = f"{base}page={page}&{rest}"
+                else:
+                    page_url = f"{base}page={page}"
+            else:
+                sep = "&" if "?" in search_url else "?"
+                page_url = f"{search_url}{sep}page={page}"
 
-            # Добавляем параметр ?page=
-            page_url = f"{search_url}?page={page}"
+            print(f"[OLX_ADS] fetch page={page} url={page_url}")
 
-            resp = await client.get(page_url)
-            if resp.status_code != 200:
+            # --- HTTP-запрос ---
+            try:
+                resp = await client.get(page_url)
+                resp.raise_for_status()
+            except httpx.HTTPError as e:
+                print(f"[OLX_ADS] HTTP error on page={page}: {e}")
+                # если первая страница упала — просто возвращаем то, что есть
                 if page == 1:
                     return results
                 break
@@ -141,51 +171,105 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
             html = resp.text
             soup = BeautifulSoup(html, "html.parser")
 
-            # ------ НОВЫЕ OLX mobile карточки ------
-            cards = soup.select('div[data-testid="l-card"], div[data-testid="ad-card"]')
+            # --- карточки объявлений ---
+
+            # 1) основной вариант (по твоим скринам)
+            cards = soup.select('div[data-testid="l-card"]')
+
+            # 2) запасной вариант (старый data-cy)
+            if not cards:
+                cards = soup.select('div[data-cy="l-card"]')
+
+            # 3) ещё один запасной (на случай другой разметки)
+            if not cards:
+                cards = soup.select(
+                    '[data-testid="ad-card"], '
+                    '[data-testid="ad-card-container"], '
+                    'article[data-testid="listing-grid-item"]'
+                )
 
             if not cards:
+                print(f"[OLX_ADS] no cards on page={page} url={page_url}")
+                # если на первой странице нет карточек — значит, что-то сильно не так
                 if page == 1:
                     return results
+                # дальше идти смысла нет
                 break
 
-            # ------ Парсим каждую карточку ------
-            for card in cards:
-                try:
-                    # URL объявления
-                    a = card.find("a", href=True)
-                    url = "https://m.olx.ua" + a["href"] if a else None
+            print(f"[OLX_ADS] cards on page={page}: {len(cards)}")
 
-                    # Заголовок
-                    title = a.get_text(strip=True) if a else ""
+            for idx, card in enumerate(cards, start=1):
+                # --- URL + title ---
+                link_el = (
+                    card.select_one('[data-cy="ad-card-title"] a')
+                    or card.select_one('a[data-testid="ad-title"]')
+                    or card.select_one('a[data-testid="title-link"]')
+                    or card.select_one("a[href]")
+                )
 
-                    # Цена
-                    price_tag = card.select_one('span[data-testid="ad-price"]')
-                    price_text = price_tag.get_text(strip=True).replace("\u202f", "") if price_tag else None
+                if not link_el or not link_el.get("href"):
+                    continue
 
-                    # Число
-                    price = None
-                    if price_text:
-                        price = "".join([c for c in price_text if c.isdigit()])
+                href = link_el.get("href", "")
+                title = link_el.get_text(" ", strip=True)
 
-                    # ID объявления
-                    external_id = None
-                    if url:
-                        # пример: /d/uk/.../IDqXo7l.html → IDqXo7l
-                        match = re.search(r"/ID([A-Za-z0-9]+)", url)
-                        if match:
-                            external_id = match.group(1)
+                # нормализуем абсолютный URL
+                if href.startswith("//"):
+                    url = "https:" + href
+                elif href.startswith("/"):
+                    url = "https://www.olx.ua" + href
+                else:
+                    url = href
 
-                    results.append({
+                # --- external_id из URL ---
+                m = re.search(r"-ID([A-Za-z0-9]+)\.html", url)
+                if m:
+                    external_id = m.group(1)
+                else:
+                    # fallback: используем сам URL как ID
+                    external_id = url
+
+                # --- location ---
+                loc_el = (
+                    card.select_one('[data-testid="location-date"]')
+                    or card.select_one('[data-cy="location-date"]')
+                )
+                location = None
+                if loc_el:
+                    loc_text = loc_el.get_text(" ", strip=True)
+                    # обычно формат "Київ - Сегодня 12:34"
+                    location = loc_text.split("-")[0].strip()
+
+                # --- seller (пока пусто, при желании доработаем позже) ---
+                seller_id = None
+                seller_name = None
+
+                # --- price ---
+                price_el = (
+                    card.select_one('span[data-testid="ad-price"]')
+                    or card.select_one('[data-testid="ad-price"]')
+                    or card.select_one('[data-cy="ad-price"]')
+                )
+                if price_el:
+                    price_text = price_el.get_text(" ", strip=True)
+                else:
+                    price_text = card.get_text(" ", strip=True)
+
+                price = extract_price(price_text)
+
+                results.append(
+                    {
                         "external_id": external_id,
                         "title": title,
                         "url": url,
-                        "price": int(price) if price else None,
+                        "price": price,
+                        "currency": "UAH",
+                        "seller_id": seller_id,
+                        "seller_name": seller_name,
+                        "location": location,
+                        "position": idx,  # позиция в выдаче на этой странице
                         "page": page,
-                    })
-
-                except Exception as e:
-                    print("CARD ERROR:", e)
-                    continue
+                    }
+                )
 
     return results
