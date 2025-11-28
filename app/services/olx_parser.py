@@ -137,23 +137,21 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
         "page": 1,
     }
     """
-    # нормализуем: мобильная версия всегда редиректит → ломает парсер
+
+    # нормализуем URL (мобильная версия ломает парсер)
     if search_url.startswith("https://m.olx.ua"):
         search_url = search_url.replace("https://m.olx.ua", "https://www.olx.ua")
+
     results: List[Dict] = []
-async with httpx.AsyncClient(
-    timeout=20.0,
-    headers=HEADERS,
-    follow_redirects=False,
-) as client:
+
+    async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
         for page in range(1, max_pages + 1):
             # --- формируем URL с параметром page ---
             if "page=" in search_url:
-                # если в URL уже есть page=, то аккуратно его заменим
+                # если в URL уже есть page= — заменяем аккуратно
                 base, _, tail = search_url.partition("page=")
                 tail_parts = tail.split("&", 1)
                 if len(tail_parts) == 2:
-                    # page=<старое>&остальное
                     _, rest = tail_parts
                     page_url = f"{base}page={page}&{rest}"
                 else:
@@ -166,58 +164,58 @@ async with httpx.AsyncClient(
 
             # --- HTTP-запрос ---
             try:
-                resp = await client.get(page_url)
-                resp.raise_for_status()
+                resp = await client.get(page_url, follow_redirects=False)
             except httpx.HTTPError as e:
                 print(f"[OLX_ADS] HTTP error on page={page}: {e}")
-                # если первая страница упала — просто возвращаем то, что есть
                 if page == 1:
                     return results
                 break
 
-            html = resp.text
-            soup = BeautifulSoup(html, "html.parser")
-
-            # --- карточки объявлений ---
-
-            # 1) основной вариант (по твоим скринам)
-            cards = soup.select('div[data-testid="l-card"]')
-
-            # 2) запасной вариант (старый data-cy)
-            if not cards:
-                cards = soup.select('div[data-cy="l-card"]')
-
-            # 3) ещё один запасной (на случай другой разметки)
-            if not cards:
-                cards = soup.select(
-                    '[data-testid="ad-card"], '
-                    '[data-testid="ad-card-container"], '
-                    'article[data-testid="listing-grid-item"]'
+            # редирект → останавливаемся
+            if resp.status_code in (301, 302, 303, 307, 308):
+                location = resp.headers.get("location")
+                print(
+                    f"[OLX_ADS] HTTP redirect {resp.status_code}: "
+                    f"{page_url!r} → {location!r}"
                 )
-
-            if not cards:
-                print(f"[OLX_ADS] no cards on page={page} url={page_url}")
-                # если на первой странице нет карточек — значит, что-то сильно не так
                 if page == 1:
                     return results
-                # дальше идти смысла нет
                 break
 
-            print(f"[OLX_ADS] cards on page={page}: {len(cards)}")
+            # если не 200 — ошибка
+            if resp.status_code != 200:
+                print(
+                    f"[OLX_ADS] HTTP error page={page}, "
+                    f"status={resp.status_code}"
+                )
+                if page == 1:
+                    return results
+                break
 
+            # --- парсим HTML ---
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            # карточки объявлений
+            cards = soup.select("div[data-cy='l-card']")
+            if not cards:
+                cards = soup.select("div[data-testid='l-card']")
+
+            if not cards:
+                print(f"[OLX_ADS] no cards on page={page}")
+                if page == 1:
+                    return results
+                break
+
+            # --- обработка карточек ---
             for idx, card in enumerate(cards, start=1):
-                # --- URL + title ---
                 link_el = (
-                    card.select_one('[data-cy="ad-card-title"] a')
-                    or card.select_one('a[data-testid="ad-title"]')
-                    or card.select_one('a[data-testid="title-link"]')
-                    or card.select_one("a[href]")
+                    card.select_one("[data-cy='ad-card-title'] a")
+                    or card.select_one("a")
                 )
-
                 if not link_el or not link_el.get("href"):
                     continue
 
-                href = link_el.get("href", "")
+                href = link_el["href"]
                 title = link_el.get_text(" ", strip=True)
 
                 # нормализуем абсолютный URL
@@ -228,40 +226,20 @@ async with httpx.AsyncClient(
                 else:
                     url = href
 
-                # --- external_id из URL ---
+                # external_id (вытаскиваем ID из URL)
                 m = re.search(r"-ID([A-Za-z0-9]+)\.html", url)
-                if m:
-                    external_id = m.group(1)
-                else:
-                    # fallback: используем сам URL как ID
-                    external_id = url
+                external_id = m.group(1) if m else url
 
-                # --- location ---
-                loc_el = (
-                    card.select_one('[data-testid="location-date"]')
-                    or card.select_one('[data-cy="location-date"]')
-                )
+                # location
+                loc_el = card.select_one("[data-testid='location-date']")
                 location = None
                 if loc_el:
                     loc_text = loc_el.get_text(" ", strip=True)
-                    # обычно формат "Київ - Сегодня 12:34"
                     location = loc_text.split("-")[0].strip()
 
-                # --- seller (пока пусто, при желании доработаем позже) ---
-                seller_id = None
-                seller_name = None
-
-                # --- price ---
-                price_el = (
-                    card.select_one('span[data-testid="ad-price"]')
-                    or card.select_one('[data-testid="ad-price"]')
-                    or card.select_one('[data-cy="ad-price"]')
-                )
-                if price_el:
-                    price_text = price_el.get_text(" ", strip=True)
-                else:
-                    price_text = card.get_text(" ", strip=True)
-
+                # price
+                price_el = card.select_one("[data-testid='ad-price']")
+                price_text = price_el.get_text(" ", strip=True) if price_el else card.get_text(" ", strip=True)
                 price = extract_price(price_text)
 
                 results.append(
@@ -271,10 +249,10 @@ async with httpx.AsyncClient(
                         "url": url,
                         "price": price,
                         "currency": "UAH",
-                        "seller_id": seller_id,
-                        "seller_name": seller_name,
+                        "seller_id": None,
+                        "seller_name": None,
                         "location": location,
-                        "position": idx,  # позиция в выдаче на этой странице
+                        "position": idx,
                         "page": page,
                     }
                 )
