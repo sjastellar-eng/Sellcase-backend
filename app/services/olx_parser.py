@@ -137,9 +137,15 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
         "page": 1,
     }
     """
+    # нормализуем: мобильная версия всегда редиректит → ломает парсер
+    if search_url.startswith("https://m.olx.ua"):
+        search_url = search_url.replace("https://m.olx.ua", "https://www.olx.ua")
     results: List[Dict] = []
-
-    async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
+async with httpx.AsyncClient(
+    timeout=20.0,
+    headers=HEADERS,
+    follow_redirects=False,
+) as client:
         for page in range(1, max_pages + 1):
             # --- формируем URL с параметром page ---
             if "page=" in search_url:
