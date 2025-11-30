@@ -191,8 +191,8 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
 async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
     """
     Глубокий парсер объявлений OLX.
-    Новый вариант: вместо HTML-парсинга используем внутренний JSON-API OLX.
-
+    Новый вариант: вместо HTML-парсинга используем внутренний JSON-API.
+    
     Формат результата:
     [
         {
@@ -205,18 +205,14 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
             "seller_name": "...",
             "location": "Київ",
             "position": 1,
-            "page": 1,
-        },
-        ...
+            "page": 1
+        }
     ]
     """
 
-    # 0. Нормализуем мобильные ссылки → на www.olx.ua
-    if search_url.startswith("https://m.olx.ua"):
-        search_url = search_url.replace("https://m.olx.ua", "https://www.olx.ua", 1)
-    elif search_url.startswith("http://m.olx.ua"):
-        search_url = search_url.replace("http://m.olx.ua", "https://www.olx.ua", 1)
-
+    # Нормализуем ссылку → всегда работаем через mobile
+    search_url = normalize_olx_url(search_url)
+    
     results: List[Dict] = []
 
     async with httpx.AsyncClient(
