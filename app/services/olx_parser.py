@@ -7,7 +7,7 @@ from typing import Optional, Dict, List
 
 import httpx
 from bs4 import BeautifulSoup
-
+from urllib.parse import urlparse, urlunparse
 import html as html_lib
 
 
@@ -32,6 +32,61 @@ HEADERS = {
     "DNT": "1",
     "Referer": "https://www.google.com/",
 }
+def normalize_olx_url(raw_url: str) -> str:
+    """
+    Принимает ЛЮБУЮ olx-ссылку (desktop/mobile) и возвращает
+    нормализованный mobile-URL вида:
+    https://m.olx.ua/uk/...
+    """
+
+    if not raw_url:
+        return raw_url
+
+    url = raw_url.strip()
+
+    # 1. Всегда https
+    if url.startswith("http://"):
+        url = "https://" + url[len("http://") :]
+
+    parsed = urlparse(url)
+
+    # 2. Приводим домен к m.olx.ua
+    netloc = parsed.netloc.lower()
+
+    if "olx.ua" not in netloc:
+        # вообще не OLX → возвращаем как есть (на всякий случай)
+        return url
+
+    # desktop варианты → в mobile
+    if netloc in ("olx.ua", "www.olx.ua"):
+        netloc = "m.olx.ua"
+    elif netloc.endswith(".olx.ua"):
+        # m.olx.ua, beta.olx.ua и т.п. → оставим как есть
+        netloc = "m.olx.ua"
+
+    # 3. Нормализуем path:
+    # /d/uk/... → /uk/...
+    path = parsed.path
+
+    if path.startswith("/d/uk/"):
+        path = path[len("/d") :]  # режем только /d → /uk/...
+
+    # Иногда desktop даёт /uk/... — это тоже ок
+    # Иногда mobile даёт уже правильный /uk/... — оставляем
+
+    # 4. Собираем обратно
+    normalized = urlunparse(
+        (
+            "https",          # schema
+            netloc,           # m.olx.ua
+            path,             # /uk/...
+            parsed.params,
+            parsed.query,
+            parsed.fragment,
+        )
+    )
+
+    return normalized
 
 def _empty_stats(reason: str) -> Dict[str, int]:
     # На будущее: reason будет видно в логах
