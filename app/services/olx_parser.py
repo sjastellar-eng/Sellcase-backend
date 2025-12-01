@@ -231,7 +231,10 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
         html_text = html_resp.text
 
         # 2. Ищем первую ссылку на /api/v1/offers в исходнике страницы
-        api_match = re.search(r"https://[^\"']*/api/v1/offers[^\"']+", html_text)
+        api_match = re.search(
+    r"(https:\\/\\/[^\"']*?\\/api\\/v1\\/offers[^\"']+|https://[^\"']*?/api/v1/offers[^\"']+)",
+    html_text
+        )
         if not api_match:
             print("[OLX_API] api url not found in html")
             return results
