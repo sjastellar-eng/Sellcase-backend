@@ -132,221 +132,136 @@ def extract_price(text: str) -> Optional[int]:
 
     return value
 
-async def fetch_olx_data(search_url: str) -> Dict[str, int]:
-    """
-    Забирает страницу поиска OLX и пытается вытащить цены всех объявлений.
-    Возвращает словарь с items_count / min / max / avg.
-    В ЛЮБОМ случае возвращает словарь (даже если ничего не распарсили).
-    """
-    # 1. HTTP-запрос
-    try:
-        async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
-            resp = await client.get(search_url)
-            resp.raise_for_status()
-    except httpx.HTTPError as e:
-        print(f"[OLX] HTTP error: {e}")
-        return _empty_stats("http-error")
-
-    html = resp.text
-    soup = BeautifulSoup(html, "html.parser")
-
-    # 2. Находим карточки объявлений
-    # Чаще всего: data-cy="l-card"
-    cards = soup.select("div[data-cy='l-card']")
-    # запасной вариант — вдруг разметка другая
-    if not cards:
-        cards = soup.select("div[data-testid='l-card']")
-
-    if not cards:
-        print("[OLX] No cards found on page")
-        return _empty_stats("no-cards")
-
-    prices: list[int] = []
-
-    # 3. Пытаемся достать цену из карточки
-    for card in cards:
-        # Берём весь текст карточки и вытаскиваем из него число
-        text = card.get_text(" ", strip=True)
-        value = extract_price(text)
-        if value is not None:
-            prices.append(value)
-
-    if not prices:
-        print("[OLX] No prices parsed from cards")
-        return _empty_stats("no-prices")
-
-    # 4. Считаем статистику
-    items_count = len(prices)
-    min_price = min(prices)
-    max_price = max(prices)
-    avg_price = round(sum(prices) / items_count, 2)
-
-    return {
-        "items_count": items_count,
-        "avg_price": avg_price,
-        "min_price": min_price,
-        "max_price": max_price,
-    }
-
 async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
     """
     Глубокий парсер объявлений OLX.
-    Новый вариант: вместо HTML-парсинга используем внутренний JSON-API.
-    
-    Формат результата:
-    [
-        {
-            "external_id": "...",
-            "title": "...",
-            "url": "...",
-            "price": 12345,
-            "currency": "UAH",
-            "seller_id": "...",
-            "seller_name": "...",
-            "location": "Київ",
-            "position": 1,
-            "page": 1
-        }
-    ]
+
+    HTML-вариант: обходит несколько страниц поиска и возвращает список объявлений.
+    Формат элемента списка:
+    {
+        "external_id": "...",
+        "title": "...",
+        "url": "...",
+        "price": 12345,
+        "currency": "UAH",
+        "seller_id": "...",
+        "seller_name": "...",
+        "location": "Київ",
+        "position": 1,
+        "page": 1,
+    }
     """
 
-    # Нормализуем ссылку → всегда работаем через mobile
+    # 0. Нормализуем ссылку → всегда работаем через mobile-формат
     search_url = normalize_olx_url(search_url)
-    
+
     results: List[Dict] = []
 
     async with httpx.AsyncClient(
-    timeout=20.0,
-    headers=HEADERS,
-    follow_redirects=True,
-) as client:
-        # 1. Тянем HTML, чтобы в нём найти URL API
-        try:
-            html_resp = await client.get(search_url)
-            html_resp.raise_for_status()
-        except httpx.HTTPError as e:
-            print(f"[OLX_API] HTML HTTP error: {e}")
-            return results
-
-        html_text = html_resp.text
-
-        # 2. Ищем первую ссылку на /api/v1/offers в исходнике страницы
-        api_match = re.search(
-    r"(https:\\/\\/[^\"']*?\\/api\\/v1\\/offers[^\"']+|https://[^\"']*?/api/v1/offers[^\"']+)",
-    html_text
-        )
-        if not api_match:
-            print("[OLX_API] api url not found in html")
-            return results
-
-        api_url_template = html_lib.unescape(api_match.group(0))
-        print(f"[OLX_API] found api url: {api_url_template}")
-
-        # 3. Определяем limit и offset, чтобы крутить страницы
-        offset_match = re.search(r"(offset=)(\d+)", api_url_template)
-        limit_match = re.search(r"(limit=)(\d+)", api_url_template)
-        limit = int(limit_match.group(2)) if limit_match else 40
-
-        for page_index in range(max_pages):
-            # если в URL уже есть offset=XXX — аккуратно меняем его
-            if offset_match:
-                new_offset = page_index * limit
-                api_url = re.sub(r"(offset=)(\d+)", rf"\1{new_offset}", api_url_template)
+        timeout=20.0,
+        headers=HEADERS,
+        follow_redirects=True,
+    ) as client:
+        for page in range(1, max_pages + 1):
+            # --- формируем URL с параметром page ---
+            if "page=" in search_url:
+                # аккуратно заменяем существующий page=...
+                base, _, tail = search_url.partition("page=")
+                tail_parts = tail.split("&", 1)
+                if len(tail_parts) == 2:
+                    _, rest = tail_parts
+                    page_url = f"{base}page={page}&{rest}"
+                else:
+                    page_url = f"{base}page={page}"
             else:
-                # offset нет → дергаем только первую страницу
-                if page_index > 0:
-                    break
-                api_url = api_url_template
+                sep = "&" if "?" in search_url else "?"
+                page_url = f"{search_url}{sep}page={page}"
 
-            page_num = page_index + 1
-            print(f"[OLX_API] fetch page={page_num} url={api_url}")
+            print(f"[OLX_ADS_HTML] fetch page={page} url={page_url}")
 
+            # --- грузим HTML ---
             try:
-                api_resp = await client.get(api_url)
+                resp = await client.get(page_url)
+                resp.raise_for_status()
             except httpx.HTTPError as e:
-                print(f"[OLX_API] api http error: {e}")
-                break
-            except Exception as e:
-                print(f"[OLX_API] api error: {e}")
+                print(f"[OLX_ADS_HTML] http error on page={page}: {e}")
                 break
 
-            if api_resp.status_code != 200:
-                print(f"[OLX_API] api status={api_resp.status_code}, stop")
+            html = resp.text
+            soup = BeautifulSoup(html, "html.parser")
+
+            # --- ищем карточки объявлений ---
+            cards = soup.select('div[data-cy="l-card"]')
+            if not cards:
+                cards = soup.select('div[data-testid="l-card"]')
+
+            if not cards:
+                print(f"[OLX_ADS_HTML] no cards on page={page}")
                 break
 
-            try:
-                data = api_resp.json()
-            except ValueError as e:
-                print(f"[OLX_API] json parse error: {e}")
-                break
-
-            # Структура может немного отличаться на разных страницах → берём максимально мягко
-            items = (
-                data.get("data", {}).get("items")
-                or data.get("data", {}).get("ads")
-                or data.get("data", [])
-            )
-
-            if not items:
-                print("[OLX_API] no items in response, stop")
-                break
-
-            for idx_in_page, item in enumerate(items, start=1):
-                # ID объявления
-                external_id = str(
-                    item.get("id")
-                    or item.get("ad_id")
-                    or item.get("external_id")
-                    or ""
-                )
-
+            for idx_on_page, card in enumerate(cards, start=1):
                 # Заголовок
-                title = item.get("title") or ""
+                title_tag = card.select_one(
+                    '[data-cy="ad-title"], [data-testid="ad-title"], a'
+                )
+                title = title_tag.get_text(" ", strip=True) if title_tag else ""
 
-                # URL объявления
-                url = item.get("url") or item.get("slug") or ""
-                if url and url.startswith("/"):
-                    url = "https://www.olx.ua" + url
+                # URL и external_id
+                link_tag = card.select_one("a[href]")
+                url = ""
+                external_id = ""
+                if link_tag:
+                    href = link_tag.get("href", "")
+                    if href.startswith("/"):
+                        url = "https://www.olx.ua" + href
+                    elif href.startswith("http"):
+                        url = href
+                    else:
+                        url = "https://www.olx.ua/" + href.lstrip("/")
+
+                    m = re.search(r"ID([0-9A-Za-z]+)\.html", href)
+                    if not m:
+                        m = re.search(r"(\d+)", href)
+                    if m:
+                        external_id = m.group(1)
 
                 # Цена
-                price_raw = item.get("price") or {}
-                price_value = None
-                currency = "UAH"
+                price_tag = card.select_one(
+                    '[data-testid="ad-price"], [data-cy="ad-price"]'
+                )
+                if price_tag:
+                    price_text = price_tag.get_text(" ", strip=True)
+                else:
+                    # запасной вариант – весь текст карточки
+                    price_text = card.get_text(" ", strip=True)
 
-                if isinstance(price_raw, dict):
-                    price_value = (
-                        price_raw.get("normalized_value")
-                        or price_raw.get("value")
-                        or price_raw.get("amount")
-                    )
-                    currency = price_raw.get("currency") or currency
+                price_value = extract_price(price_text) or 0
+                currency = "UAH"  # OLX UA
 
                 # Локация
-                location_obj = item.get("location") or {}
+                location_tag = card.select_one(
+                    '[data-testid="location-date"], [data-cy="location-date"]'
+                )
                 location = (
-                    location_obj.get("city")
-                    or location_obj.get("label")
-                    or location_obj.get("name")
-                    or ""
+                    location_tag.get_text(" ", strip=True) if location_tag else ""
                 )
 
-                # Продавец (если есть)
-                seller_obj = item.get("seller") or {}
-                seller_id = seller_obj.get("id") or seller_obj.get("user_id")
-                seller_name = seller_obj.get("name") or seller_obj.get("display_name")
+                # Продавец (пока пустые, можно будет доработать)
+                seller_id = ""
+                seller_name = ""
 
                 results.append(
                     {
                         "external_id": external_id,
                         "title": title,
                         "url": url,
-                        "price": int(price_value) if isinstance(price_value, (int, float)) else None,
+                        "price": price_value,
                         "currency": currency,
                         "seller_id": seller_id,
                         "seller_name": seller_name,
                         "location": location,
-                        "position": len(results) + 1,  # глобальная позиция в выдаче
-                        "page": page_num,
+                        "position": len(results) + 1,
+                        "page": page,
                     }
                 )
 
