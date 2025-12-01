@@ -131,7 +131,60 @@ def extract_price(text: str) -> Optional[int]:
         return None
 
     return value
+    
+async def fetch_olx_data(search_url: str) -> Dict[str, int]:
+    """
+    Забирает страницу поиска OLX и пытается вытащить цены всех объявлений.
+    Возвращает словарь с items_count / min / max / avg.
+    В ЛЮБОМ случае возвращает словарь (даже если ничего не распарсилось).
+    """
 
+    # Нормализуем URL
+    search_url = normalize_olx_url(search_url)
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
+            resp = await client.get(search_url)
+            resp.raise_for_status()
+    except httpx.HTTPError as e:
+        print(f"[OLX] HTTP error: {e}")
+        return _empty_stats("http-error")
+
+    html = resp.text
+    soup = BeautifulSoup(html, "html.parser")
+
+    cards = soup.select('div[data-cy="l-card"]')
+    if not cards:
+        cards = soup.select('div[data-testid="l-card"]')
+
+    if not cards:
+        print("[OLX] No cards found on page")
+        return _empty_stats("no-cards")
+
+    prices: list[int] = []
+
+    for card in cards:
+        text = card.get_text(" ", strip=True)
+        value = extract_price(text)
+        if value is not None:
+            prices.append(value)
+
+    if not prices:
+        print("[OLX] No prices parsed from cards")
+        return _empty_stats("no-prices")
+
+    items_count = len(prices)
+    min_price = min(prices)
+    max_price = max(prices)
+    avg_price = round(sum(prices) / items_count, 2)
+
+    return {
+        "items_count": items_count,
+        "avg_price": avg_price,
+        "min_price": min_price,
+        "max_price": max_price,
+    }
+    
 async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
     """
     Глубокий парсер объявлений OLX.
