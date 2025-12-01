@@ -36,3 +36,18 @@ app.include_router(leads.router)
 app.include_router(metrics.router)
 app.include_router(olx_projects.router)
 app.include_router(auth.router)
+
+from fastapi import FastAPI
+from app.db import Base, engine
+from app.routers import olx_reports  # <- новый роутер
+
+app = FastAPI(
+    title="SellCase API",
+    version="0.1.0",
+)
+
+# Автосоздание таблиц (если Alembic ещё не используем)
+Base.metadata.create_all(bind=engine)
+
+# Роутеры
+app.include_router(olx_reports.router)
