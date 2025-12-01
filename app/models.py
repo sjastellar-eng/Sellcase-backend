@@ -152,3 +152,49 @@ class OlxProjectStats(Base):
     collected_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     project = relationship("OlxProject", back_populates="stats")
+
+# --- OLX Reports --- #
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey
+from sqlalchemy.orm import relationship
+from datetime import datetime
+
+class OlxReport(Base):
+    __tablename__ = "olx_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    source = Column(String(32), default="olx", index=True)
+    query_url = Column(Text, nullable=False)
+
+    status = Column(String(24), default="done", index=True)  # planned | running | done | error
+    error = Column(Text, nullable=True)
+
+    items_count = Column(Integer, default=0)
+    avg_price = Column(Float, nullable=True)
+    min_price = Column(Float, nullable=True)
+    max_price = Column(Float, nullable=True)
+
+    note = Column(String(255), nullable=True)
+
+    items = relationship("OlxReportItem", back_populates="report", cascade="all, delete-orphan")
+
+
+class OlxReportItem(Base):
+    __tablename__ = "olx_report_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("olx_reports.id"), index=True, nullable=False)
+
+    external_id = Column(String(64), index=True)
+    title = Column(Text, nullable=True)
+    url = Column(Text, nullable=True)
+    price = Column(Float, nullable=True)
+    currency = Column(String(8), default="UAH")
+    seller_id = Column(String(64), nullable=True)
+    seller_name = Column(String(255), nullable=True)
+    location = Column(String(255), nullable=True)
+    position = Column(Integer, nullable=True)
+    page = Column(Integer, nullable=True)
+
+    report = relationship("OlxReport", back_populates="items")
