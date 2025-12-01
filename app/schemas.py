@@ -30,6 +30,7 @@ class UserCreate(UserBase):
 class UserOut(UserBase):
     id: int
     created_at: datetime
+    is_active: bool = True
 
     class Config:
         from_attributes = True
