@@ -16,6 +16,11 @@ class LeadIn(BaseModel):
     message: Optional[str] = None
     raw: Optional[Dict[str, Any]] = None
     
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: Optional[int] = None
+    
 # ---------- Users ----------
 
 class UserBase(BaseModel):
