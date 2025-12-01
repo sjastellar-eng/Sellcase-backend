@@ -75,3 +75,53 @@ class OlxSnapshotOut(BaseModel):
         from_attributes = True
         # если хочешь, можно оставить и это (для совместимости)
         orm_mode = True
+from typing import List, Optional
+from pydantic import BaseModel, HttpUrl
+
+# --- OLX Reports --- #
+class OlxReportCreate(BaseModel):
+    url: HttpUrl
+    max_pages: int = 1
+    note: Optional[str] = None
+
+
+class OlxReportItemOut(BaseModel):
+    external_id: Optional[str] = None
+    title: Optional[str] = None
+    url: Optional[str] = None
+    price: Optional[float] = None
+    currency: Optional[str] = "UAH"
+    seller_id: Optional[str] = None
+    seller_name: Optional[str] = None
+    location: Optional[str] = None
+    position: Optional[int] = None
+    page: Optional[int] = None
+
+    class Config:
+        orm_mode = True
+
+
+class OlxReportOut(BaseModel):
+    id: int
+    created_at: datetime
+    source: str
+    query_url: str
+    status: str
+    error: Optional[str] = None
+    items_count: int
+    avg_price: Optional[float] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    note: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+class OlxReportWithItemsOut(OlxReportOut):
+    items: List[OlxReportItemOut] = []
+
+
+class OlxReportListOut(BaseModel):
+    total: int
+    items: List[OlxReportOut]
