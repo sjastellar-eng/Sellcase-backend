@@ -35,7 +35,8 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     full_name = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
+    is_active = Column(Boolean, nullable=False, default=True)
+    
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email!r}>"
 
