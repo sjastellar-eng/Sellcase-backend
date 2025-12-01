@@ -1,53 +1,49 @@
 # app/main.py
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.db import Base, engine
-from app.routers import auth
+from app.routers import (
+    leads,
+    health,
+    metrics,
+    olx_projects,
+    olx_reports,  # новый роутер отчётов
+    auth,
+)
+
 import importlib
 
 # Загружаем модели, чтобы SQLAlchemy видел таблицы
 importlib.import_module("app.models")
 
-# Создаём таблицы (если их нет)
+# Создаём таблицы (если их ещё нет)
 Base.metadata.create_all(bind=engine)
 
 # Инициализация FastAPI
-app = FastAPI(title="SellCase API", version="1.0.0")
+app = FastAPI(
+    title="SellCase API",
+    version="0.1.0",
+)
 
-# Разрешаем CORS только для твоего домена
+# Разрешаем CORS только для твоих доменов
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://sellcase.net",
         "https://www.sellcase.net",
-        "https://sellcase-backend.onrender.com"
+        "https://sellcase-backend.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Импортируем и подключаем роутеры
-
-from app.routers import leads, health, metrics, olx_projects
-
+# Подключаем все роутеры
 app.include_router(health.router)
 app.include_router(leads.router)
 app.include_router(metrics.router)
 app.include_router(olx_projects.router)
+app.include_router(olx_reports.router)  # отчёты OLX
 app.include_router(auth.router)
-
-from fastapi import FastAPI
-from app.db import Base, engine
-from app.routers import olx_reports  # <- новый роутер
-
-app = FastAPI(
-    title="SellCase API",
-    version="0.1.0",
-)
-
-# Автосоздание таблиц (если Alembic ещё не используем)
-Base.metadata.create_all(bind=engine)
-
-# Роутеры
-app.include_router(olx_reports.router)
