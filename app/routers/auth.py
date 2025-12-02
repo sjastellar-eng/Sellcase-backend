@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
@@ -97,8 +98,6 @@ def register_user(
     db.refresh(user)
     return user
 
-
-from fastapi.security import OAuth2PasswordRequestForm
 
 @router.post("/login", response_model=schemas.Token)
 def login(
