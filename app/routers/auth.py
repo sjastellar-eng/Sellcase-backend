@@ -98,19 +98,21 @@ def register_user(
     return user
 
 
+from fastapi.security import OAuth2PasswordRequestForm
+
 @router.post("/login", response_model=schemas.Token)
 def login(
-    creds: schemas.UserLogin,
+    form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    user = get_user_by_email(db, creds.email)
-    if not user or not verify_password(creds.password, user.hashed_password):
+    user = get_user_by_email(db, form_data.username)
+    if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль",
         )
 
-    access_token = create_access_token(data={"sub": user.email})
+    access_token = create_access_token({"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
 
