@@ -15,8 +15,6 @@ from app.routers import (
 )
 
 import importlib
-from app.db import Base, engine
-from sqlalchemy import text  # <- новый импорт
 
 # Загружаем модели, чтобы SQLAlchemy видел таблицы
 importlib.import_module("app.models")
@@ -25,16 +23,19 @@ importlib.import_module("app.models")
 Base.metadata.create_all(bind=engine)
 
 # --- Авто-миграция: добавляем колонку is_active, если её нет ---
-with engine.connect() as conn:
-    conn.execute(
-        text(
-            """
-            ALTER TABLE users
-            ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
-            """
+try:
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+                """
+            )
         )
-    )
-    conn.commit()
+        conn.commit()
+except Exception as e:
+    print("Migration error:", e)
 # ----------------------------------------------------------------
 
 # Инициализация FastAPI
