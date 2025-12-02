@@ -147,3 +147,36 @@ class DebugParseRequest(BaseModel):
 async def debug_parse(body: DebugParseRequest):
     ads = await fetch_olx_ads(body.url, max_pages=body.max_pages)
     return ads
+
+@router.get(
+    "/{project_id}/snapshots",
+    response_model=List[schemas.OlxSnapshotOut],
+)
+def list_project_snapshots(
+    project_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что проект принадлежит текущему пользователю
+    project = (
+        db.query(models.OlxProject)
+        .filter(
+            models.OlxProject.id == project_id,
+            models.OlxProject.user_id == current_user.id,  # если у тебя поле owner_id — поменяй здесь
+        )
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    snapshots = (
+        db.query(models.OlxSnapshot)
+        .filter(models.OlxSnapshot.project_id == project_id)
+        .order_by(models.OlxSnapshot.taken_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return snapshots
