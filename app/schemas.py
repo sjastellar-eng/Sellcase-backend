@@ -73,6 +73,17 @@ class OlxSnapshotOut(BaseModel):
     class Config:
         orm_mode = True
 
+class OlxProjectOverview(BaseModel):
+    id: int
+    name: str
+    search_url: str
+    notes: Optional[str] = None
+    is_active: bool
+    last_snapshot: Optional[OlxSnapshotOut] = None
+    
+    class Config:
+        orm_mode = True
+
 class OlxProjectBase(BaseModel):
     name: str
     search_url: str
