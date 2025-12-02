@@ -9,8 +9,13 @@ from app.routers.auth import get_current_user
 from app import models
 from app.db import get_db
 from app.models import OlxProject, OlxSnapshot
-from app.schemas import OlxProjectCreate, OlxProjectOut, OlxSnapshotOut
-
+from app.schemas import (
+    OlxProjectCreate,
+    OlxProjectOut,
+    OlxSnapshotOut,
+    OlxProjectUpdate,
+    OlxProjectOverview,
+)
 from app.services.olx_parser import fetch_olx_data
 
 router = APIRouter(prefix="/olx/projects", tags=["OLX Projects"])
@@ -34,6 +39,44 @@ def create_project(
     db.refresh(project)
     return project
 
+@router.put("/{project_id}", response_model=OlxProjectOut)
+def update_project(
+    project_id: int,
+    payload: OlxProjectUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # 1. Ищем проект текущего пользователя
+    project = (
+        db.query(OlxProject)
+        .filter(
+            OlxProject.id == project_id,
+            OlxProject.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    # 2. Обновляем только те поля, которые пришли в запросе
+    if payload.name is not None:
+        project.name = payload.name
+    if payload.search_url is not None:
+        project.search_url = payload.search_url
+    if payload.notes is not None:
+        project.notes = payload.notes
+    if payload.is_active is not None:  # важно проверять именно 'is not None'
+        project.is_active = payload.is_active
+
+    # 3. Сохраняем изменения
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+
+    return project
 
 @router.get("/", response_model=List[OlxProjectOut])
 def list_projects(
