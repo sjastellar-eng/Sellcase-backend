@@ -1,6 +1,5 @@
 # app/services/olx_parser.py
 
-url = url.replace("m.olx.ua", "www.olx.ua")
 from __future__ import annotations
 
 import re
