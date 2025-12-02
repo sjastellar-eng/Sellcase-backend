@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.services.auth import get_current_user
+from app.routers.auth import get_current_user
 from app import models
 from app.db import get_db
 from app.models import OlxProject, OlxSnapshot
