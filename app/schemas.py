@@ -50,6 +50,28 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
 
+# --- Обновление проекта OLX ---
+
+class OlxProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    search_url: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+# --- Снапшоты проекта (для списка снапшотов) ---
+
+class OlxSnapshotOut(BaseModel):
+    id: int
+    project_id: int
+    items_count: int
+    min_price: int
+    max_price: int
+    avg_price: int
+    taken_at: datetime
+
+    class Config:
+        orm_mode = True
 
 class OlxProjectBase(BaseModel):
     name: str
