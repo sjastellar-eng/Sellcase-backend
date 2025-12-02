@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.db import Base, engine
 from app.routers import (
@@ -14,12 +15,27 @@ from app.routers import (
 )
 
 import importlib
+from app.db import Base, engine
+from sqlalchemy import text  # <- новый импорт
 
 # Загружаем модели, чтобы SQLAlchemy видел таблицы
 importlib.import_module("app.models")
 
-# Создаём таблицы (если их ещё нет)
+# Создаём таблицы (если их нет)
 Base.metadata.create_all(bind=engine)
+
+# --- Авто-миграция: добавляем колонку is_active, если её нет ---
+with engine.connect() as conn:
+    conn.execute(
+        text(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+            """
+        )
+    )
+    conn.commit()
+# ----------------------------------------------------------------
 
 # Инициализация FastAPI
 app = FastAPI(
