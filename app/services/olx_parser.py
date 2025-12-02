@@ -1,5 +1,6 @@
 # app/services/olx_parser.py
 
+url = url.replace("m.olx.ua", "www.olx.ua")
 from __future__ import annotations
 
 import re
@@ -144,7 +145,7 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
 
     try:
         async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
-            resp = await client.get(search_url)
+            response = await client.get(url, follow_redirects=True)
             resp.raise_for_status()
     except httpx.HTTPError as e:
         print(f"[OLX] HTTP error: {e}")
