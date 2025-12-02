@@ -144,7 +144,7 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
 
     try:
         async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
-            response = await client.get(url, follow_redirects=True)
+            resp = await client.get(search_url, follow_redirects=True)
             resp.raise_for_status()
     except httpx.HTTPError as e:
         print(f"[OLX] HTTP error: {e}")
@@ -152,6 +152,7 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
 
     html = resp.text
     soup = BeautifulSoup(html, "html.parser")
+    ...
 
     cards = soup.select('div[data-cy="l-card"]')
     if not cards:
