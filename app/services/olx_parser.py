@@ -7,7 +7,7 @@ from typing import Optional, Dict, List
 
 import httpx
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 import html as html_lib
 
 
@@ -32,13 +32,14 @@ HEADERS = {
     "DNT": "1",
     "Referer": "https://www.google.com/",
 }
+
+
 def normalize_olx_url(raw_url: str) -> str:
     """
     Принимает ЛЮБУЮ olx-ссылку (desktop/mobile) и возвращает
     нормализованный mobile-URL вида:
     https://m.olx.ua/uk/...
     """
-
     if not raw_url:
         return raw_url
 
@@ -71,15 +72,15 @@ def normalize_olx_url(raw_url: str) -> str:
     if path.startswith("/d/uk/"):
         path = path[len("/d") :]  # режем только /d → /uk/...
 
-    # Иногда desktop даёт /uk/... — это тоже ок
-    # Иногда mobile даёт уже правильный /uk/... — оставляем
+    # Иногда desktop даёт /uk/... – это тоже ок
+    # Иногда mobile даёт уже правильный /uk/... – оставляем
 
     # 4. Собираем обратно
     normalized = urlunparse(
         (
-            "https",          # schema
-            netloc,           # m.olx.ua
-            path,             # /uk/...
+            "https",        # schema
+            netloc,         # m.olx.ua
+            path,           # /uk/...
             parsed.params,
             parsed.query,
             parsed.fragment,
@@ -87,6 +88,7 @@ def normalize_olx_url(raw_url: str) -> str:
     )
 
     return normalized
+
 
 def _empty_stats(reason: str) -> Dict[str, int]:
     # На будущее: reason будет видно в логах
@@ -103,6 +105,8 @@ def extract_price(text: str) -> Optional[int]:
     """
     Извлекает адекватную цену из текста карточки OLX.
     """
+    if not text:
+        return None
 
     # 1. Ищем число рядом с гривной
     match = re.search(
@@ -131,20 +135,24 @@ def extract_price(text: str) -> Optional[int]:
         return None
 
     return value
-    
+
+
 async def fetch_olx_data(search_url: str) -> Dict[str, int]:
     """
     Забирает страницу поиска OLX и пытается вытащить цены всех объявлений.
     Возвращает словарь с items_count / min / max / avg.
     В ЛЮБОМ случае возвращает словарь (даже если ничего не распарсилось).
     """
-
     # Нормализуем URL
     search_url = normalize_olx_url(search_url)
 
     try:
-        async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
-            resp = await client.get(search_url, follow_redirects=True)
+        async with httpx.AsyncClient(
+            timeout=20.0,
+            headers=HEADERS,
+            follow_redirects=True,
+        ) as client:
+            resp = await client.get(search_url)
             resp.raise_for_status()
     except httpx.HTTPError as e:
         print(f"[OLX] HTTP error: {e}")
@@ -152,8 +160,8 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
 
     html = resp.text
     soup = BeautifulSoup(html, "html.parser")
-    ...
 
+    # Ищем карточки объявлений
     cards = soup.select('div[data-cy="l-card"]')
     if not cards:
         cards = soup.select('div[data-testid="l-card"]')
@@ -162,7 +170,7 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
         print("[OLX] No cards found on page")
         return _empty_stats("no-cards")
 
-    prices: list[int] = []
+    prices: List[int] = []
 
     for card in cards:
         text = card.get_text(" ", strip=True)
@@ -177,7 +185,7 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
     items_count = len(prices)
     min_price = min(prices)
     max_price = max(prices)
-    avg_price = round(sum(prices) / items_count, 2)
+    avg_price = round(sum(prices) / items_count)
 
     return {
         "items_count": items_count,
@@ -185,13 +193,41 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
         "min_price": min_price,
         "max_price": max_price,
     }
-    
+
+
+# ===== ГЛУБОКИЙ ПАРСЕР ОБЪЯВЛЕНИЙ (для /debug/parse и будущих фич) =====
+
+def _build_page_url(base_search_url: str, page: int) -> str:
+    """
+    Аккуратно добавляет / заменяет параметр ?page= в URL.
+    """
+    parsed = urlparse(base_search_url)
+    query_list = parse_qsl(parsed.query, keep_blank_values=True)
+    query_dict = dict(query_list)
+
+    query_dict["page"] = str(page)
+
+    new_query = urlencode(query_dict)
+
+    return urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            new_query,
+            parsed.fragment,
+        )
+    )
+
+
 async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
     """
     Глубокий парсер объявлений OLX.
 
-    HTML-вариант: обходит несколько страниц поиска и возвращает список объявлений.
-    Формат элемента списка:
+    HTML-вариант: обходит несколько страниц поиска и возвращает список
+    объявлений со структурой:
+
     {
         "external_id": "...",
         "title": "...",
@@ -201,11 +237,10 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
         "seller_id": "...",
         "seller_name": "...",
         "location": "Київ",
-        "position": 1,
-        "page": 1,
+        "position": 1,      # порядковый номер в общем списке
+        "page": 1,          # номер страницы
     }
     """
-
     # 0. Нормализуем ссылку → всегда работаем через mobile-формат
     search_url = normalize_olx_url(search_url)
 
@@ -217,20 +252,7 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
         follow_redirects=True,
     ) as client:
         for page in range(1, max_pages + 1):
-            # --- формируем URL с параметром page ---
-            if "page=" in search_url:
-                # аккуратно заменяем существующий page=...
-                base, _, tail = search_url.partition("page=")
-                tail_parts = tail.split("&", 1)
-                if len(tail_parts) == 2:
-                    _, rest = tail_parts
-                    page_url = f"{base}page={page}&{rest}"
-                else:
-                    page_url = f"{base}page={page}"
-            else:
-                sep = "&" if "?" in search_url else "?"
-                page_url = f"{search_url}{sep}page={page}"
-
+            page_url = _build_page_url(search_url, page)
             print(f"[OLX_ADS_HTML] fetch page={page} url={page_url}")
 
             # --- грузим HTML ---
@@ -253,10 +275,10 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
                 print(f"[OLX_ADS_HTML] no cards on page={page}")
                 break
 
-            for idx_on_page, card in enumerate(cards, start=1):
+            for card in cards:
                 # Заголовок
                 title_tag = card.select_one(
-                    '[data-cy="ad-title"], [data-testid="ad-title"], a'
+                    '[data-cy="ad-title"], [data-testid="ad-title"]'
                 )
                 title = title_tag.get_text(" ", strip=True) if title_tag else ""
 
@@ -264,6 +286,7 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
                 link_tag = card.select_one("a[href]")
                 url = ""
                 external_id = ""
+
                 if link_tag:
                     href = link_tag.get("href", "")
                     if href.startswith("/"):
@@ -273,6 +296,7 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
                     else:
                         url = "https://www.olx.ua/" + href.lstrip("/")
 
+                    # Пытаемся вытащить ID объявления
                     m = re.search(r"ID([0-9A-Za-z]+)\.html", href)
                     if not m:
                         m = re.search(r"(\d+)", href)
@@ -297,7 +321,9 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
                     '[data-testid="location-date"], [data-cy="location-date"]'
                 )
                 location = (
-                    location_tag.get_text(" ", strip=True) if location_tag else ""
+                    location_tag.get_text(" ", strip=True)
+                    if location_tag
+                    else ""
                 )
 
                 # Продавец (пока пустые, можно будет доработать)
