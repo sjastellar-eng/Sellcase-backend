@@ -67,7 +67,7 @@ class OlxSnapshotOut(BaseModel):
     items_count: int
     min_price: int
     max_price: int
-    avg_price: int
+    avg_price: float   # ← было int
     taken_at: datetime
 
     class Config:
