@@ -91,6 +91,56 @@ def list_projects(
     )
     return projects
 
+@router.get("/overview", response_model=List[OlxProjectOverview])
+def list_projects_overview(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # 1) Берём все проекты текущего пользователя
+    projects = (
+        db.query(OlxProject)
+        .filter(OlxProject.user_id == current_user.id)
+        .order_by(OlxProject.id.desc())
+        .all()
+    )
+
+    results = []
+
+    for project in projects:
+        # 2) Ищем последний снапшот по дате
+        last_snapshot = (
+            db.query(OlxSnapshot)
+            .filter(OlxSnapshot.project_id == project.id)
+            .order_by(OlxSnapshot.taken_at.desc())
+            .first()
+        )
+
+        # 3) Собираем словарь под нашу схему OlxProjectOverview
+        last_snapshot_data = None
+        if last_snapshot:
+            last_snapshot_data = {
+                "id": last_snapshot.id,
+                "project_id": last_snapshot.project_id,
+                "items_count": last_snapshot.items_count,
+                "min_price": last_snapshot.min_price,
+                "max_price": last_snapshot.max_price,
+                "avg_price": last_snapshot.avg_price,
+                "taken_at": last_snapshot.taken_at,
+            }
+
+        results.append(
+            {
+                "id": project.id,
+                "name": project.name,
+                "search_url": project.search_url,
+                "notes": project.notes,
+                "is_active": project.is_active,
+                "last_snapshot": last_snapshot_data,
+            }
+        )
+
+    return results
+
 @router.post("/{project_id}/refresh")
 async def refresh_project(
     project_id: int,
