@@ -193,7 +193,7 @@ async def debug_parse(body: DebugParseRequest):
 
 @router.get(
     "/{project_id}/snapshots",
-    response_model=List[schemas.OlxSnapshotOut],
+    response_model=List[OlxSnapshotOut],
 )
 def list_project_snapshots(
     project_id: int,
