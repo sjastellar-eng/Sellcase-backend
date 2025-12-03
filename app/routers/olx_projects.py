@@ -136,6 +136,68 @@ async def refresh_project(
     # 4) Возвращаем статус и id созданного снапшота
     return {"status": "ok", "snapshot_id": snapshot.id}
 
+@router.post("/refresh_all")
+async def refresh_all_projects(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Обновляет ВСЕ активные проекты текущего пользователя.
+    Для каждого проекта создаётся новый снапшот.
+    """
+
+    # 1) Берём все активные проекты пользователя
+    projects = (
+        db.query(OlxProject)
+        .filter(
+            OlxProject.user_id == current_user.id,
+            OlxProject.is_active == True,  # только активные
+        )
+        .all()
+    )
+
+    if not projects:
+        return {
+            "status": "ok",
+            "updated": 0,
+            "snapshots": [],
+        }
+
+    snapshots_info = []
+
+    # 2) Для каждого проекта тянем данные OLX и создаём снапшот
+    for project in projects:
+        stats = await fetch_olx_data(project.search_url)
+        if not stats:
+            # если OLX вернул ошибку / редирект / капчу — пропускаем
+            continue
+
+        snapshot = OlxSnapshot(
+            project_id=project.id,
+            items_count=stats["items_count"],
+            min_price=stats["min_price"],
+            max_price=stats["max_price"],
+            avg_price=stats["avg_price"],
+        )
+        db.add(snapshot)
+        db.flush()  # чтобы получить snapshot.id без отдельного commit
+
+        snapshots_info.append(
+            {
+                "project_id": project.id,
+                "snapshot_id": snapshot.id,
+            }
+        )
+
+    # 3) Один общий commit для всех снапшотов
+    db.commit()
+
+    return {
+        "status": "ok",
+        "updated": len(snapshots_info),
+        "snapshots": snapshots_info,
+    }
+
 from sqlalchemy import inspect
 from app.db import SessionLocal
 from app.services.olx_parser import fetch_olx_ads
