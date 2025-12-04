@@ -23,6 +23,8 @@ from app.schemas import (
 )
 from app.services.olx_parser import fetch_olx_data, fetch_olx_ads
 
+MAX_PROJECTS_PER_USER = 5  # временный фиксированный лимит, потом подвяжем к тарифам
+
 router = APIRouter(prefix="/olx/projects", tags=["OLX Projects"])
 
 
@@ -32,6 +34,26 @@ def create_project(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    # 1. Считаем, сколько активных проектов уже есть у этого пользователя
+    active_projects_count = (
+        db.query(OlxProject)
+        .filter(
+            OlxProject.user_id == current_user.id,
+            OlxProject.is_active == True,
+        )
+        .count()
+    )
+
+    if active_projects_count >= MAX_PROJECTS_PER_USER:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Превышен лимит проектов: {MAX_PROJECTS_PER_USER}. "
+                "Удалите неактуальный проект или обновите тариф."
+            ),
+        )
+
+    # 2. Если лимит не превышен — создаём проект как раньше
     project = OlxProject(
         name=payload.name,
         search_url=payload.search_url,
@@ -39,9 +61,11 @@ def create_project(
         is_active=True,
         user_id=current_user.id,
     )
+
     db.add(project)
     db.commit()
     db.refresh(project)
+
     return project
 
 @router.put("/{project_id}", response_model=OlxProjectOut)
