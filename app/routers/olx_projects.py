@@ -2,7 +2,11 @@
 
 from typing import List
 
+import csv
+import io
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.routers.auth import get_current_user
@@ -333,3 +337,72 @@ async def list_project_ads(
 
     # 3) Просто отдаём список объявлений
     return ads
+
+@router.get(
+    "/{project_id}/ads.csv",
+    response_class=StreamingResponse,
+    summary="Download project ads as CSV",
+)
+async def download_project_ads_csv(
+    project_id: int,
+    max_pages: int = 3,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Глубоко парсит объявления OLX по проекту и отдаёт CSV-файл.
+    """
+
+    # 1) Проверяем, что проект принадлежит текущему пользователю
+    project = (
+        db.query(OlxProject)
+        .filter(
+            OlxProject.id == project_id,
+            OlxProject.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    # 2) Грузим объявления через deep-парсер
+    ads = await fetch_olx_ads(project.search_url, max_pages=max_pages)
+
+    # 3) Формируем CSV в памяти
+    fieldnames = [
+        "external_id",
+        "title",
+        "url",
+        "price",
+        "currency",
+        "seller_id",
+        "seller_name",
+        "location",
+        "position",
+        "page",
+    ]
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+
+    for ad in ads:
+        row = {name: ad.get(name, "") for name in fieldnames}
+        writer.writerow(row)
+
+    buffer.seek(0)
+    csv_bytes = buffer.getvalue().encode("utf-8-sig")  # для Excel и кириллицы
+
+    # 4) Отдаём как файл
+    filename = f"project_{project_id}_ads.csv"
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
