@@ -15,6 +15,7 @@ from app.schemas import (
     OlxSnapshotOut,
     OlxProjectUpdate,
     OlxProjectOverview,
+    OlxAdOut,           # ← добавляем эту строку
 )
 from app.services.olx_parser import fetch_olx_data
 
