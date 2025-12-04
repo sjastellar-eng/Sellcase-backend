@@ -73,6 +73,21 @@ class OlxSnapshotOut(BaseModel):
     class Config:
         orm_mode = True
 
+class OlxAdOut(BaseModel):
+    external_id: str
+    title: str
+    url: str
+    price: int
+    currency: str
+    seller_id: str
+    seller_name: str
+    location: str
+    position: int
+    page: int
+
+    class Config:
+        orm_mode = False
+
 class OlxProjectOverview(BaseModel):
     id: int
     name: str
