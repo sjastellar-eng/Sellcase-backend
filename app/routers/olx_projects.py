@@ -17,7 +17,7 @@ from app.schemas import (
     OlxProjectOverview,
     OlxAdOut,           # ← добавляем эту строку
 )
-from app.services.olx_parser import fetch_olx_data
+from app.services.olx_parser import fetch_olx_data, fetch_olx_ads
 
 router = APIRouter(prefix="/olx/projects", tags=["OLX Projects"])
 
