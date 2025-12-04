@@ -301,3 +301,35 @@ def list_project_snapshots(
         .all()
     )
     return snapshots
+
+@router.get(
+    "/{project_id}/ads",
+    response_model=List[OlxAdOut],
+)
+async def list_project_ads(
+    project_id: int,
+    max_pages: int = 3,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # 1) Проверяем, что проект принадлежит текущему пользователю
+    project = (
+        db.query(OlxProject)
+        .filter(
+            OlxProject.id == project_id,
+            OlxProject.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    # 2) Парсим объявления по ссылке проекта
+    ads = await fetch_olx_ads(project.search_url, max_pages=max_pages)
+
+    # 3) Просто отдаём список объявлений
+    return ads
