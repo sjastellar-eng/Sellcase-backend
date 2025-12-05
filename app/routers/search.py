@@ -2,88 +2,124 @@
 
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import func
 
 from app.db import get_db
-from app.models import Category, SearchQuery
-
-router = APIRouter(
-    prefix="/search",
-    tags=["Search"],
-)
+from app.models import Category, SearchQuery, User
+from app.routers.auth import get_current_user
 
 
-def _normalize_query(text: str) -> str:
-    """
-    Нормализация строки запроса:
-    - trim пробелов
-    - приводим к нижнему регистру
-    - схлопываем множественные пробелы
-    """
-    return " ".join(text.strip().lower().split())
+router = APIRouter(prefix="/search", tags=["Search"])
+
+
+def normalize_query(q: str) -> str:
+    """Приводим запрос к нормальному виду: нижний регистр и одна пробельная полоска."""
+    return " ".join(q.strip().lower().split())
 
 
 @router.get("/categories")
 def search_categories(
-    query: str,
-    limit: int = 10,
+    query: str = Query(..., min_length=1, description="Поисковая строка, например: авто, iphone, квартира"),
+    limit: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
-    Поиск категорий по запросу пользователя + логирование запроса.
-
-    Возвращаем простой список:
-    [
-      { "id": 1, "name": "...", "slug": "..." },
-      ...
-    ]
+    Поиск релевантных категорий по тексту.
+    Используется для подбора ниши / категории под запрос.
     """
+    norm = normalize_query(query)
+    like = f"%{norm}%"
 
-    normalized = _normalize_query(query)
-
-    # --- 1. Ищем подходящие категории ---
-    categories: List[Category] = (
+    # Ищем по названию, slug и keywords
+    q = (
         db.query(Category)
         .filter(
-            or_(
-                Category.name.ilike(f"%{normalized}%"),
-                Category.slug.ilike(f"%{normalized}%"),
-                Category.keywords.ilike(f"%{normalized}%"),
-            )
+            (Category.name.ilike(like)) |
+            (Category.slug.ilike(like)) |
+            (Category.keywords.ilike(like))
         )
-        .order_by(Category.name.asc())
+        .order_by(Category.id.asc())
         .limit(limit)
+    )
+
+    categories = q.all()
+
+    # Логируем этот поиск (для статистики и автокомплита)
+    search_log = SearchQuery(
+        user_id=current_user.id if current_user else None,
+        query=query,
+        normalized_query=norm,
+        category_id=categories[0].id if categories else None,
+        results_count=len(categories),
+    )
+    db.add(search_log)
+    db.commit()
+
+    # Отдаём аккуратный список
+    return [
+        {"id": c.id, "name": c.name, "slug": c.slug}
+        for c in categories
+    ]
+
+
+@router.get("/autocomplete")
+def autocomplete(
+    query: str = Query(..., min_length=1, description="Часть поискового запроса"),
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Автокомплит:
+
+    1) Берём подходящие категории (name / slug / keywords)
+    2) Добавляем популярные запросы пользователей, которые начинаются с этого текста
+    """
+    norm = normalize_query(query)
+    like = f"%{norm}%"
+    starts = f"{norm}%"  # для поиска запросов, которые начинаются с norm
+
+    suggestions: List[str] = []
+
+    # 1. Подсказки из категорий
+    cat_limit = max(3, limit // 2)  # минимум 3 штуки из категорий
+    cat_rows = (
+        db.query(Category.name)
+        .filter(
+            (Category.name.ilike(like)) |
+            (Category.slug.ilike(like)) |
+            (Category.keywords.ilike(like))
+        )
+        .order_by(Category.id.asc())
+        .limit(cat_limit)
         .all()
     )
 
-    results_count = len(categories)
+    for (name,) in cat_rows:
+        if name not in suggestions:
+            suggestions.append(name)
 
-    # Если нашли ровно одну категорию — считаем её "основной"
-    main_category_id = categories[0].id if results_count == 1 else None
+    # 2. Подсказки из истории запросов (SearchQuery)
+    if len(suggestions) < limit:
+        remaining = limit - len(suggestions)
 
-    # --- 2. Логируем поисковый запрос ---
-    try:
-        search_row = SearchQuery(
-            user_id=None,                # позже сюда подцепим текущего пользователя
-            query=query,                 # как ввёл пользователь
-            normalized_query=normalized, # нормализованная строка
-            category_id=main_category_id,
-            results_count=results_count,
+        query_rows = (
+            db.query(
+                SearchQuery.normalized_query,
+                func.count(SearchQuery.id).label("cnt"),
+            )
+            .filter(SearchQuery.normalized_query.startswith(norm))
+            .group_by(SearchQuery.normalized_query)
+            .order_by(func.count(SearchQuery.id).desc())
+            .limit(remaining)
+            .all()
         )
-        db.add(search_row)
-        db.commit()
-    except Exception:
-        # если логирование сломалось — откатываем БД, но поиск не ломаем
-        db.rollback()
 
-    # --- 3. Формируем ответ ---
-    return [
-        {
-            "id": c.id,
-            "name": c.name,
-            "slug": c.slug,
-        }
-        for c in categories
-    ]
+        for q_text, _cnt in query_rows:
+            if q_text not in suggestions:
+                suggestions.append(q_text)
+
+    return suggestions
