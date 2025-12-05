@@ -215,3 +215,32 @@ class Category(Base):
     parent_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
 
     parent = relationship("Category", remote_side=[id], backref="children")
+
+class SearchQuery(Base):
+    __tablename__ = "search_queries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Что ввёл пользователь
+    query = Column(String(255), nullable=False)
+
+    # Нормализованный запрос (для поиска и автокомплита)
+    normalized_query = Column(String(255), index=True, nullable=False)
+
+    # Понимание категории (если определено)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+
+    # Количество найденных объявлений
+    results_count = Column(Integer, default=0)
+
+    # Для будущего автокомплита (вес запроса)
+    popularity = Column(Integer, default=1)
+
+    # Источник запроса
+    source = Column(String(32), default="manual")
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", backref="search_queries")
+    category = relationship("Category", backref="search_queries")
