@@ -28,8 +28,8 @@ from app.services.category_seed import seed_categories
 # --- Авто-миграция: добавляем колонку name_ru, если её ещё нет ---
 with engine.connect() as conn:
     conn.execute(text(
-        "ALTER TABLE IF NOT EXISTS categories "
-        "ADD COLUMN IF NOT EXISTS name_ru VARCHAR(255);"
+    "ALTER TABLE categories "
+    "ADD COLUMN IF NOT EXISTS name_ru VARCHAR(255);"
     ))
     conn.commit()
 
