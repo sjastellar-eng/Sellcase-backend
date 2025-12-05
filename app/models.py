@@ -201,20 +201,29 @@ class Category(Base):
     __tablename__ = "categories"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False, index=True)  # RU имя
-    name_ua = Column(String(255), nullable=True)            # UA имя (новое поле)
+
+    # Название категории на украинском (главное)
+    name = Column(String(255), nullable=False, index=True)
+
+    # Название категории на русском (дополнительное)
+    name_ru = Column(String(255), nullable=True)
+
+    # Слаг / машинное имя (например: "cars", "smartphones", "rent_flat")
     slug = Column(String(255), unique=True, index=True)
 
-    # Алиасы / ключевые слова
+    # Ключевые слова / синонимы для поиска (UA + RU, через запятую)
     keywords = Column(Text, nullable=True)
 
+    # Родительская категория (для иерархии, можно оставить пустым)
     parent_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+
     parent = relationship("Category", remote_side=[id], backref="children")
 
-    def all_aliases(self):
+    # Удобный метод, чтобы получить список синонимов
+    def all_aliases(self) -> list[str]:
         if not self.keywords:
             return []
-        return [x.strip().lower() for x in self.keywords.split(",") if x.strip()]
+        return [a.strip().lower() for a in self.keywords.split(",") if a.strip()]
 
 class SearchQuery(Base):
     __tablename__ = "search_queries"
