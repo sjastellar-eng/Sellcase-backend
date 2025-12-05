@@ -201,20 +201,20 @@ class Category(Base):
     __tablename__ = "categories"
 
     id = Column(Integer, primary_key=True, index=True)
-    # Название категории (то, что будет видеть пользователь)
-    name = Column(String(255), nullable=False, index=True)
-
-    # Слаг / машинное имя (например: "cars", "smartphones", "rent_flats")
+    name = Column(String(255), nullable=False, index=True)  # RU имя
+    name_ua = Column(String(255), nullable=True)            # UA имя (новое поле)
     slug = Column(String(255), unique=True, index=True)
 
-    # Ключевые слова для поиска (через запятую или перенос строки)
-    # Пример: "авто, машина, легковая, car, авто бу"
+    # Алиасы / ключевые слова
     keywords = Column(Text, nullable=True)
 
-    # Родительская категория (для иерархии, можно оставить пустым)
     parent_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
-
     parent = relationship("Category", remote_side=[id], backref="children")
+
+    def all_aliases(self):
+        if not self.keywords:
+            return []
+        return [x.strip().lower() for x in self.keywords.split(",") if x.strip()]
 
 class SearchQuery(Base):
     __tablename__ = "search_queries"
