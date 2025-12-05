@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.db import Base, engine
+from app.db import Base, engine, SessionLocal
 from app.routers import (
     leads,
     health,
@@ -24,11 +24,21 @@ importlib.import_module("app.models")
 Base.metadata.create_all(bind=engine)
 
 from app.services.category_seed import seed_categories
-from app.db import SessionLocal
 
+# --- Авто-миграция: добавляем колонку name_ru, если её ещё нет ---
+with engine.connect() as conn:
+    conn.execute(text(
+        "ALTER TABLE IF NOT EXISTS categories "
+        "ADD COLUMN IF NOT EXISTS name_ru VARCHAR(255);"
+    ))
+    conn.commit()
+
+# --- Сидируем категории (если их ещё нет / нужно обновить) ---
 db = SessionLocal()
-seed_categories(db)
-db.close()
+try:
+    seed_categories(db)
+finally:
+    db.close()
 
 # --- Авто-миграция: добавляем колонку is_active, если её нет ---
 try:
