@@ -1,125 +1,153 @@
 # app/routers/search.py
 
-from typing import List
+from typing import List, Literal, Optional
+
+import re
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from app.db import get_db
-from app.models import Category, SearchQuery, User
-from app.routers.auth import get_current_user
+from app.models import Category, SearchQuery
+
+router = APIRouter(
+    prefix="/search",
+    tags=["search"],
+)
 
 
-router = APIRouter(prefix="/search", tags=["Search"])
-
+# ===== Вспомогательная функция нормализации запроса =====
 
 def normalize_query(q: str) -> str:
-    """Приводим запрос к нормальному виду: нижний регистр и одна пробельная полоска."""
-    return " ".join(q.strip().lower().split())
+    """
+    Приводим запрос к нижнему регистру, убираем лишние пробелы.
+    На этом потом можно строить ИИ-классификацию.
+    """
+    q = q.strip().lower()
+    q = re.sub(r"\s+", " ", q)
+    return q
 
 
-@router.get("/categories")
+# ===== Pydantic-схемы ответов =====
+
+class CategoryOut(BaseModel):
+    id: int
+    slug: str
+    name: str
+    name_ru: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+class AutocompleteItem(BaseModel):
+    type: Literal["query", "category"]
+    value: str
+    category_id: Optional[int] = None
+    slug: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+# ===== /search/categories =====
+
+@router.get("/categories", response_model=List[CategoryOut])
 def search_categories(
-    query: str = Query(..., min_length=1, description="Поисковая строка, например: авто, iphone, квартира"),
-    limit: int = Query(10, ge=1, le=50),
+    query: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """
-    Поиск релевантных категорий по тексту.
-    Используется для подбора ниши / категории под запрос.
+    Поиск категорий по названию (UA, RU) и keywords.
+    Используется для подсказок категорий на фронте.
     """
-    norm = normalize_query(query)
-    like = f"%{norm}%"
+    q_norm = normalize_query(query)
+    pattern = f"%{q_norm}%"
 
-    # Ищем по названию, slug и keywords
-    q = (
+    categories = (
         db.query(Category)
         .filter(
-            (Category.name.ilike(like)) |
-            (Category.slug.ilike(like)) |
-            (Category.keywords.ilike(like))
+            or_(
+                func.lower(Category.name).ilike(pattern),
+                func.lower(Category.name_ru).ilike(pattern),
+                func.lower(Category.keywords).ilike(pattern),
+            )
         )
-        .order_by(Category.id.asc())
-        .limit(limit)
-    )
-
-    categories = q.all()
-
-    # Логируем этот поиск (для статистики и автокомплита)
-    search_log = SearchQuery(
-        user_id=current_user.id if current_user else None,
-        query=query,
-        normalized_query=norm,
-        category_id=categories[0].id if categories else None,
-        results_count=len(categories),
-    )
-    db.add(search_log)
-    db.commit()
-
-    # Отдаём аккуратный список
-    return [
-        {"id": c.id, "name": c.name, "slug": c.slug}
-        for c in categories
-    ]
-
-
-@router.get("/autocomplete")
-def autocomplete(
-    query: str = Query(..., min_length=1, description="Часть поискового запроса"),
-    limit: int = Query(10, ge=1, le=50),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Автокомплит:
-
-    1) Берём подходящие категории (name / slug / keywords)
-    2) Добавляем популярные запросы пользователей, которые начинаются с этого текста
-    """
-    norm = normalize_query(query)
-    like = f"%{norm}%"
-    starts = f"{norm}%"  # для поиска запросов, которые начинаются с norm
-
-    suggestions: List[str] = []
-
-    # 1. Подсказки из категорий
-    cat_limit = max(3, limit // 2)  # минимум 3 штуки из категорий
-    cat_rows = (
-        db.query(Category.name)
-        .filter(
-            (Category.name.ilike(like)) |
-            (Category.slug.ilike(like)) |
-            (Category.keywords.ilike(like))
-        )
-        .order_by(Category.id.asc())
-        .limit(cat_limit)
+        .order_by(Category.name.asc())
+        .limit(20)
         .all()
     )
 
-    for (name,) in cat_rows:
-        if name not in suggestions:
-            suggestions.append(name)
+    return categories
 
-    # 2. Подсказки из истории запросов (SearchQuery)
-    if len(suggestions) < limit:
-        remaining = limit - len(suggestions)
 
-        query_rows = (
-            db.query(
-                SearchQuery.normalized_query,
-                func.count(SearchQuery.id).label("cnt"),
+# ===== /search/autocomplete =====
+
+@router.get("/autocomplete", response_model=List[AutocompleteItem])
+def autocomplete(
+    query: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+):
+    """
+    Автокомплит:
+    1) Сначала ищем похожие прошлые запросы (SearchQuery) по префиксу.
+    2) Если мало — добавляем подсказки категорий.
+    """
+    q_norm = normalize_query(query)
+    prefix = f"{q_norm}%"
+
+    suggestions: list[AutocompleteItem] = []
+
+    # 1. Подсказки из прошлых запросов
+    prev_queries = (
+        db.query(SearchQuery)
+        .filter(SearchQuery.normalized_query.ilike(prefix))
+        .order_by(
+            SearchQuery.popularity.desc(),
+            SearchQuery.results_count.desc(),
+            SearchQuery.created_at.desc(),
+        )
+        .limit(10)
+        .all()
+    )
+
+    for q in prev_queries:
+        suggestions.append(
+            AutocompleteItem(
+                type="query",
+                value=q.query,
+                category_id=q.category_id,
+                slug=q.category.slug if q.category else None,
             )
-            .filter(SearchQuery.normalized_query.startswith(norm))
-            .group_by(SearchQuery.normalized_query)
-            .order_by(func.count(SearchQuery.id).desc())
-            .limit(remaining)
+        )
+
+    # 2. Если подсказок меньше 10 — добиваем категориями
+    if len(suggestions) < 10:
+        pattern = f"%{q_norm}%"
+        categories = (
+            db.query(Category)
+            .filter(
+                or_(
+                    func.lower(Category.name).ilike(pattern),
+                    func.lower(Category.name_ru).ilike(pattern),
+                    func.lower(Category.keywords).ilike(pattern),
+                )
+            )
+            .order_by(Category.name.asc())
+            .limit(10 - len(suggestions))
             .all()
         )
 
-        for q_text, _cnt in query_rows:
-            if q_text not in suggestions:
-                suggestions.append(q_text)
+        for cat in categories:
+            suggestions.append(
+                AutocompleteItem(
+                    type="category",
+                    value=cat.name,
+                    category_id=cat.id,
+                    slug=cat.slug,
+                )
+            )
 
     return suggestions
