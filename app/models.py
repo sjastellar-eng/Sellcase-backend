@@ -155,9 +155,6 @@ class OlxProjectStats(Base):
     project = relationship("OlxProject", back_populates="stats")
 
 # --- OLX Reports --- #
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey
-from sqlalchemy.orm import relationship
-from datetime import datetime
 
 class OlxReport(Base):
     __tablename__ = "olx_reports"
