@@ -23,6 +23,13 @@ importlib.import_module("app.models")
 # Создаём таблицы (если их нет)
 Base.metadata.create_all(bind=engine)
 
+from app.services.category_seed import seed_categories
+from app.db import SessionLocal
+
+db = SessionLocal()
+seed_categories(db)
+db.close()
+
 # --- Авто-миграция: добавляем колонку is_active, если её нет ---
 try:
     with engine.connect() as conn:
