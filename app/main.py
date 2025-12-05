@@ -13,6 +13,7 @@ from app.routers import (
     olx_reports,  # новый роутер отчётов
     auth,
 )
+from app.routers import search as search_router
 
 import importlib
 
@@ -64,3 +65,4 @@ app.include_router(metrics.router)
 app.include_router(olx_projects.router)
 app.include_router(olx_reports.router)  # отчёты OLX
 app.include_router(auth.router)
+app.include_router(search_router.router)
