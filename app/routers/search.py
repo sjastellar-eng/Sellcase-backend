@@ -417,3 +417,18 @@ def search_stats(
         top_categories=top_categories,
         empty_queries=empty_queries,
     )
+    @router.get("/suggestions")
+def get_suggestions(query: str, db: Session = Depends(get_db)):
+    normalized = query.strip().lower()
+
+    results = (
+        db.query(SearchQuery)
+        .filter(SearchQuery.normalized_query.like(f"{normalized}%"))
+        .order_by(SearchQuery.popularity.desc())
+        .limit(5)
+        .all()
+    )
+
+    suggestions = [r.normalized_query for r in results]
+
+    return {"suggestions": suggestions}
