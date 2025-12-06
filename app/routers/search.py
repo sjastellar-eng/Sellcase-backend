@@ -315,32 +315,25 @@ def log_search_endpoint(
 
 # ===== /search/stats =====
 
-@router.get("/stats", response_model=SearchStatsOut)
-def search_stats(
-    limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-):
+@router.get("/stats")
+def search_stats(limit: int = 20, db: Session = Depends(get_db)):
     """
-    Простая аналитика поиска:
-    - top_queries: самые популярные запросы;
-    - top_categories: категории с наибольшей суммарной популярностью;
-    - empty_queries: запросы, которые не дали ни одного результата.
+    Возвращает статистику поиска:
+    - Топ популярных запросов
+    - Топ категорий
+    - Пустые (0 результатов) запросы
     """
 
-    # ---- ТОП ЗАПРОСОВ ----
+    # --- Топ запросов ---
     top_queries_orm = (
         db.query(SearchQuery)
-        .order_by(
-            SearchQuery.popularity.desc(),
-            SearchQuery.results_count.desc(),
-            SearchQuery.created_at.desc(),
-        )
+        .order_by(SearchQuery.popularity.desc(), SearchQuery.created_at.desc())
         .limit(limit)
         .all()
     )
 
     top_queries = [
-        TopQueryOut(
+        SearchQueryOut(
             id=q.id,
             query=q.query,
             normalized_query=q.normalized_query,
@@ -355,49 +348,32 @@ def search_stats(
         for q in top_queries_orm
     ]
 
-    # ---- ТОП КАТЕГОРИЙ ----
-    top_categories_raw = (
+    # --- Топ категорий ---
+    top_categories = (
         db.query(
-            Category.id.label("category_id"),
+            Category.id,
             Category.slug,
             Category.name,
-            Category.name_ru,
-            func.sum(SearchQuery.popularity).label("total_popularity"),
-            func.avg(SearchQuery.results_count).label("avg_results"),
+            func.count(SearchQuery.id).label("query_count")
         )
         .join(SearchQuery, SearchQuery.category_id == Category.id)
-        .group_by(Category.id, Category.slug, Category.name, Category.name_ru)
-        .order_by(func.sum(SearchQuery.popularity).desc())
+        .group_by(Category.id)
+        .order_by(func.count(SearchQuery.id).desc())
         .limit(limit)
         .all()
     )
 
-    top_categories = [
-        TopCategoryOut(
-            category_id=row.category_id,
-            slug=row.slug,
-            name=row.name,
-            name_ru=row.name_ru,
-            total_popularity=int(row.total_popularity or 0),
-            avg_results=float(row.avg_results or 0.0),
-        )
-        for row in top_categories_raw
-    ]
-
-    # ---- ЗАПРОСЫ БЕЗ РЕЗУЛЬТАТА ----
+    # --- Пустые запросы ---
     empty_queries_orm = (
         db.query(SearchQuery)
         .filter(SearchQuery.results_count == 0)
-        .order_by(
-            SearchQuery.popularity.desc(),
-            SearchQuery.created_at.desc(),
-        )
+        .order_by(SearchQuery.created_at.desc())
         .limit(limit)
         .all()
     )
 
     empty_queries = [
-        TopQueryOut(
+        SearchQueryOut(
             id=q.id,
             query=q.query,
             normalized_query=q.normalized_query,
@@ -412,14 +388,13 @@ def search_stats(
         for q in empty_queries_orm
     ]
 
-return SearchStatsOut(
+    return SearchStatsOut(
         top_queries=top_queries,
         top_categories=top_categories,
         empty_queries=empty_queries,
     )
-
-@router.get("/suggestions")
-def get_suggestions(query: str, db: Session = Depends(get_db)):
+    @router.get("/suggestions")
+    def get_suggestions(query: str, db: Session = Depends(get_db)):
     normalized = query.strip().lower()
 
     results = (
