@@ -17,13 +17,11 @@ router = APIRouter(
     tags=["search"],
 )
 
-
 # ===== Вспомогательная функция нормализации запроса =====
 
 def normalize_query(q: str) -> str:
     """
     Приводим запрос к нижнему регистру, убираем лишние пробелы.
-    На этом потом можно строить ИИ-классификацию.
     """
     q = q.strip().lower()
     q = re.sub(r"\s+", " ", q)
@@ -50,6 +48,96 @@ class AutocompleteItem(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class SearchLogRequest(BaseModel):
+    """
+    Тело запроса для логирования поиска.
+    Фронт может отправлять:
+    - query: что ввёл пользователь
+    - category_slug: выбранная категория (если есть)
+    - results_count: сколько объявлений нашли
+    - source: откуда запрос (по умолчанию 'frontend')
+    - user_id: id пользователя в твоей системе (если нужно)
+    """
+    query: str
+    category_slug: Optional[str] = None
+    results_count: int
+    source: str = "frontend"
+    user_id: Optional[int] = None
+
+
+class SearchLogResponse(BaseModel):
+    id: int
+    query: str
+    normalized_query: str
+    category_id: Optional[int] = None
+    results_count: int
+    popularity: int
+    source: str
+
+    class Config:
+        orm_mode = True
+
+
+# ===== Внутренняя функция логирования =====
+
+def log_search_query(
+    db: Session,
+    *,
+    query: str,
+    results_count: int,
+    source: str = "frontend",
+    category: Optional[Category] = None,
+    user_id: Optional[int] = None,
+) -> SearchQuery:
+    """
+    Пишем запрос в таблицу search_queries.
+
+    Логика:
+    - нормализуем запрос;
+    - ищем запись с таким же normalized_query + category_id;
+    - если есть — увеличиваем popularity;
+    - если нет — создаём новую.
+    """
+
+    normalized = normalize_query(query)
+    category_id = category.id if category else None
+
+    existing = (
+        db.query(SearchQuery)
+        .filter(
+            SearchQuery.normalized_query == normalized,
+            SearchQuery.category_id.is_(category_id)
+            if category_id is None
+            else SearchQuery.category_id == category_id,
+        )
+        .first()
+    )
+
+    if existing:
+        existing.popularity += 1
+        existing.results_count = results_count
+        existing.source = source
+        if user_id is not None:
+            existing.user_id = user_id
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    new_q = SearchQuery(
+        query=query,
+        normalized_query=normalized,
+        category_id=category_id,
+        results_count=results_count,
+        popularity=1,
+        source=source,
+        user_id=user_id,
+    )
+    db.add(new_q)
+    db.commit()
+    db.refresh(new_q)
+    return new_q
 
 
 # ===== /search/categories =====
@@ -151,3 +239,40 @@ def autocomplete(
             )
 
     return suggestions
+
+
+# ===== /search/log =====
+
+@router.post("/log", response_model=SearchLogResponse)
+def log_search_endpoint(
+    payload: SearchLogRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Эндпоинт для логирования поисковых запросов.
+
+    Идея:
+    - фронт делает основной поиск (по OLX/отчётам) как сейчас;
+    - после получения результата фронт отправляет сюда:
+        query, category_slug (если выбрана), results_count;
+    - мы пишем / обновляем запись в search_queries.
+    """
+
+    category: Optional[Category] = None
+    if payload.category_slug:
+        category = (
+            db.query(Category)
+            .filter(Category.slug == payload.category_slug)
+            .first()
+        )
+
+    sq = log_search_query(
+        db,
+        query=payload.query,
+        results_count=payload.results_count,
+        source=payload.source,
+        category=category,
+        user_id=payload.user_id,
+    )
+
+    return sq
