@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from .models import Category
+from app.models import Category
 
 CATEGORY_DATA = [
     # === Транспорт ===
