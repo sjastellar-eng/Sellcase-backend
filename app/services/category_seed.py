@@ -20,6 +20,15 @@ CATEGORY_DATA = [
         "keywords": "авто,легковое авто,машина,sedan,хетчбек,кросовер,suv,авто бу",
         "parent_slug": "transport",
     },
+
+    {
+        "slug": "smartphones",
+        "name": "Телефони та смартфони",             # UA
+        "name_ru": "Телефоны и смартфоны",           # RU
+        "keywords": "телефон,телефони,смартфон,смартфоны,iphone,айфон,samsung,xiaomi,redmi,oneplus",
+        "parent_slug": "electronics",
+    },
+    
     {
         "slug": "transport_moto",
         "name": "Мотоцикли та мототехніка",
