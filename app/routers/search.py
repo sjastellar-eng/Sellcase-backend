@@ -412,12 +412,13 @@ def search_stats(
         for q in empty_queries_orm
     ]
 
-    return SearchStatsOut(
+return SearchStatsOut(
         top_queries=top_queries,
         top_categories=top_categories,
         empty_queries=empty_queries,
     )
-    @router.get("/suggestions")
+
+@router.get("/suggestions")
 def get_suggestions(query: str, db: Session = Depends(get_db)):
     normalized = query.strip().lower()
 
