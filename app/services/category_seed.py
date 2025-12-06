@@ -153,38 +153,47 @@ CATEGORY_DATA = [
     },
 ]
 
-
 def seed_categories(db: Session) -> None:
-    """Создаёт категории, если их ещё нет."""
+    """
+    Умный сидер:
+    - создаёт категории, если их нет;
+    - обновляет name, name_ru, keywords, parent_id, если они уже есть;
+    - НЕ создаёт дубликаты.
+    """
+
+    # Загружаем уже существующие категории из БД (по slug)
     existing = {c.slug: c for c in db.query(Category).all()}
 
-    # сначала создаём / обновляем сами категории
+    # 1) Создаём / обновляем категории по slug
     for item in CATEGORY_DATA:
         slug = item["slug"]
-        cat = existing.get(slug)
+        category = existing.get(slug)
 
-        if not cat:
-            cat = Category(slug=slug)
-            db.add(cat)
-            existing[slug] = cat
+        if not category:
+            category = Category(slug=slug)
+            db.add(category)
+            existing[slug] = category
 
-        cat.name = item["name"]
-        cat.name_ru = item.get("name_ru")
-        cat.keywords = item.get("keywords") or ""
+        # Обновляем основные поля
+        category.name = item.get("name") or category.name
+        category.name_ru = item.get("name_ru") or category.name_ru
+        category.keywords = item.get("keywords") or category.keywords
 
-    db.flush()  # чтобы у новых категорий появились id
+    # Фиксируем, чтобы у новых появились id
+    db.flush()
 
-    # второй проход — расставляем parent_id
-    by_slug = existing
+    # 2) Проставляем parent_id по parent_slug
     for item in CATEGORY_DATA:
         slug = item["slug"]
         parent_slug = item.get("parent_slug")
+
         if not parent_slug:
             continue
 
-        cat = by_slug.get(slug)
-        parent = by_slug.get(parent_slug)
-        if cat and parent:
-            cat.parent_id = parent.id
+        category = existing.get(slug)
+        parent = existing.get(parent_slug)
+
+        if category and parent:
+            category.parent_id = parent.id
 
     db.commit()
