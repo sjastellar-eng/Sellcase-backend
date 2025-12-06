@@ -393,8 +393,8 @@ def search_stats(limit: int = 20, db: Session = Depends(get_db)):
         top_categories=top_categories,
         empty_queries=empty_queries,
     )
-    @router.get("/suggestions")
-    def get_suggestions(query: str, db: Session = Depends(get_db)):
+ @router.get("/suggestions")
+ def get_suggestions(query: str, db: Session = Depends(get_db)):
     normalized = query.strip().lower()
 
     results = (
