@@ -494,22 +494,15 @@ def get_suggestions(
     limit: int = 5,
     db: Session = Depends(get_db),
 ):
-    """
-    Умные подсказки:
-    1) Похожие прошлые запросы (SearchQuery) по префиксу.
-    2) Если мало — добавляем названия категорий по name / name_ru / keywords.
-    """
+    # Продвинутая нормализация (айф → айфон, ноут → ноутбук и т.д.)
+    q_norm = normalize_query_advanced(query)
 
-    normalized = query.strip().lower()
-    prefix = f"{normalized}%"
+    items = []
 
-    suggestions: list[str] = []
-    seen: set[str] = set()
-
-    # 1. Подсказки из прошлых запросов
-    prev_queries = (
+    # 1. Подсказки из прошлых запросов (SearchQuery)
+    prev = (
         db.query(SearchQuery)
-        .filter(SearchQuery.normalized_query.ilike(prefix))
+        .filter(SearchQuery.normalized_query.ilike(f"{q_norm}%"))
         .order_by(
             SearchQuery.popularity.desc(),
             SearchQuery.results_count.desc(),
@@ -519,41 +512,34 @@ def get_suggestions(
         .all()
     )
 
-    for q in prev_queries:
-        value = q.normalized_query
-        if value and value not in seen:
-            suggestions.append(value)
-            seen.add(value)
+    for p in prev:
+        if p.normalized_query and p.normalized_query not in items:
+            items.append(p.normalized_query)
 
-    # 2. Если подсказок мало — добавляем категории
-    if len(suggestions) < limit:
-        # Берём первое слово из запроса для поиска по keywords
-        main_term = normalized.split()[0] if normalized else ""
-        if main_term:
-            like_pattern = f"%{main_term}%"
-
-            categories = (
-                db.query(Category)
-                .filter(
-                    or_(
-                        Category.name.ilike(like_pattern),
-                        Category.name_ru.ilike(like_pattern),
-                        Category.keywords.ilike(like_pattern),
-                    )
-                )
-                .limit(limit)
-                .all()
+    # 2. Подсказки из категорий (name / name_ru / slug)
+    cats = (
+        db.query(Category)
+        .filter(
+            or_(
+                Category.name.ilike(f"%{query}%"),
+                Category.name_ru.ilike(f"%{query}%"),
+                Category.slug.ilike(f"{q_norm}%"),
+                Category.keywords.ilike(f"%{q_norm}%"),
             )
+        )
+        .limit(limit)
+        .all()
+    )
 
-            for c in categories:
-                label = c.name_ru or c.name
-                if not label:
-                    continue
-                low = label.lower()
-                if low not in seen:
-                    suggestions.append(label)
-                    seen.add(low)
-                if len(suggestions) >= limit:
-                    break
+    for c in cats:
+        name = c.name_ru or c.name
+        if name and name not in items:
+            items.append(name)
 
-    return {"suggestions": suggestions}
+    # 3. AI-подсказки на основе нормализованного ключа
+    items = ai_hints(q_norm, items, limit)
+
+    # На всякий случай ещё раз ограничим длину
+    items = items[:limit]
+
+    return {"suggestions": items}
