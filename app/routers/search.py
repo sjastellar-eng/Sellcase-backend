@@ -298,7 +298,16 @@ def search_categories(
         .all()
     )
 
-    return categories
+return [
+    CategoryOut(
+        id=c.id,
+        slug=c.slug,
+        name=c.name,
+        name_ru=c.name_ru,
+        keywords=c.keywords,
+    )
+    for c in categories
+    ]
 
 
 # ===== /search/autocomplete =====
