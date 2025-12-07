@@ -295,8 +295,8 @@ def search_categories(
         )
         .order_by(Category.name.asc())
         .limit(20)
-        .all()
-    )
+        ).all()
+)
 
 return [
     CategoryOut(
@@ -307,7 +307,10 @@ return [
         keywords=c.keywords,
     )
     for c in categories
-    ]
+]
+
+# ===== /search/autocomplete =====
+# ===== /search/autocomplete =====
 
 
 # ===== /search/autocomplete =====
