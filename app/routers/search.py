@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Category, SearchQuery
 
+
 def normalize_query_advanced(q: str) -> str:
     q = q.strip().lower()
 
@@ -20,14 +21,19 @@ def normalize_query_advanced(q: str) -> str:
         "айф": "айфон",
         "iphone": "айфон",
         "ifon": "айфон",
+
         "смартф": "смартфон",
         "тел": "телефон",
+
         "ноут": "ноутбук",
         "mac": "макбук",
         "macbook": "макбук",
+
         "квар": "квартира",
         "оренда": "аренда",
-        "бу": "б/у",
+        "аренда": "аренда",
+
+        "авто": "авто",
     }
 
     for key, val in repl.items():
@@ -35,6 +41,71 @@ def normalize_query_advanced(q: str) -> str:
             return val
 
     return q
+
+
+# ==== СЮДА ВСТАВЬ ЭТО ====
+
+AI_HINTS = {
+    "айфон": [
+        "айфон бу",
+        "айфон 11",
+        "айфон xr",
+        "айфон 12",
+        "купить айфон недорого",
+    ],
+    "смартфон": [
+        "смартфон бу",
+        "смартфон недорого",
+        "смартфон samsung",
+        "смартфон xiaomi",
+    ],
+    "ноутбук": [
+        "ноутбук бу",
+        "игровой ноутбук",
+        "ноутбук для работы",
+        "macbook бу",
+    ],
+    "макбук": [
+        "macbook air бу",
+        "macbook pro бу",
+    ],
+    "квартира": [
+        "аренда квартир",
+        "квартира долгосрочно",
+        "купить квартиру",
+        "1к квартира",
+        "2к квартира",
+    ],
+    "аренда": [
+        "аренда квартиры долгосрочно",
+        "аренда квартиры посуточно",
+    ],
+    "авто": [
+        "авто бу",
+        "купить авто бу",
+        "авто на запчасти",
+    ],
+}
+
+
+def ai_hints(norm: str, items, limit: int):
+    """
+    Добавляем ручные AI-подсказки по якорному слову.
+    norm — уже нормализованный запрос ('айфон', 'квартира' и т.п.).
+    """
+    for key, hints in AI_HINTS.items():
+        if norm.startswith(key):
+            for h in hints:
+                if h not in items:
+                    items.append(h)
+    return items[:limit]
+
+# ==== А ДАЛЬШЕ УЖЕ router = APIRouter(...) ====
+
+router = APIRouter(
+    prefix="/search",
+    tags=["search"],
+)
 
 router = APIRouter(
     prefix="/search",
