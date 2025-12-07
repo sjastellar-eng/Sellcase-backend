@@ -273,6 +273,8 @@ def log_search_query(
 # ===== /search/categories =====
 
 @router.get("/categories", response_model=List[CategoryOut])
+
+@router.get("/categories", response_model=List[CategoryOut])
 def search_categories(
     query: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
@@ -281,7 +283,9 @@ def search_categories(
     Поиск категорий по названию (UA, RU) и keywords.
     Используется для подсказок категорий на фронте.
     """
-    q_norm = normalize_query(query)
+
+    # Нормализуем запрос c учётом словарика типа "айф" -> "айфон"
+    q_norm = normalize_query_advanced(query)
     pattern = f"%{q_norm}%"
 
     categories = (
@@ -295,18 +299,21 @@ def search_categories(
         )
         .order_by(Category.name.asc())
         .limit(20)
-        ).all()
-
-return [
-    CategoryOut(
-        id=c.id,
-        slug=c.slug,
-        name=c.name,
-        name_ru=c.name_ru,
-        keywords=c.keywords,
+        .all()
     )
-    for c in categories
-]
+
+    # Явно мапим ORM-модели в Pydantic-схему CategoryOut,
+    # чтобы в ответе гарантированно были keywords
+    return [
+        CategoryOut(
+            id=c.id,
+            slug=c.slug,
+            name=c.name,
+            name_ru=c.name_ru,
+            keywords=c.keywords,
+        )
+        for c in categories
+    ]
 
 # ===== /search/autocomplete =====
 # ===== /search/autocomplete =====
