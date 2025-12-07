@@ -176,6 +176,20 @@ class SearchLogResponse(BaseModel):
     class Config:
         orm_mode = True
 
+class TrainingSampleOut(BaseModel):
+    id: int
+    query: str
+    normalized_query: str
+    category_id: Optional[int]
+    category_slug: Optional[str]
+    category_name: Optional[str]
+    results_count: int
+    popularity: int
+    source: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
 
 # ==== Схемы для статистики =====
 
@@ -841,32 +855,62 @@ class TrainingSample(BaseModel):
     popularity: int
     created_at: datetime
 
-
-@router.get("/training-dataset", response_model=List[TrainingSample])
+@router.get(
+    "/training-dataset",
+    response_model=List[TrainingSampleOut],
+)
 def training_dataset(
-    limit: int = 1000,
     db: Session = Depends(get_db),
+    limit: int = Query(1000, ge=1, le=10000),
+    offset: int = 0,
+    from_date: Optional[datetime] = Query(None),
+    to_date: Optional[datetime] = Query(None),
+    min_popularity: int = 0,
+    only_with_category: bool = False,
 ):
     """
-    Выгрузка датасета для обучения ML-модели.
+    Датасет для обучения ML-моделей.
+
+    Параметры:
+    - from_date / to_date — ограничение по дате created_at
+    - min_popularity — минимальная популярность запроса
+    - only_with_category — брать только те запросы, у которых есть категория
+    - limit / offset — пагинация
     """
+
+    q = db.query(SearchQuery)
+
+    if from_date is not None:
+        q = q.filter(SearchQuery.created_at >= from_date)
+
+    if to_date is not None:
+        q = q.filter(SearchQuery.created_at <= to_date)
+
+    if min_popularity > 0:
+        q = q.filter(SearchQuery.popularity >= min_popularity)
+
+    if only_with_category:
+        q = q.filter(SearchQuery.category_id.isnot(None))
+
     rows = (
-        db.query(SearchQuery)
-        .order_by(SearchQuery.created_at.desc())
-        .limit(limit)
-        .all()
+        q.order_by(SearchQuery.created_at.desc())
+         .offset(offset)
+         .limit(limit)
+         .all()
     )
 
-    samples: List[TrainingSample] = []
-    for r in rows:
-        samples.append(
-            TrainingSample(
-                query=r.query,
-                normalized_query=r.normalized_query,
-                category_slug=r.category.slug if r.category else None,
-                results_count=r.results_count,
-                popularity=r.popularity,
-                created_at=r.created_at,
-            )
+    return [
+        TrainingSampleOut(
+            id=r.id,
+            query=r.query,
+            normalized_query=r.normalized_query,
+            category_id=r.category_id,
+            category_slug=r.category.slug if r.category else None,
+            category_name=r.category.name if r.category else None,
+            results_count=r.results_count,
+            popularity=r.popularity,
+            source=r.source,
+            created_at=r.created_at,
         )
-    return samples
+        for r in rows
+        ]
