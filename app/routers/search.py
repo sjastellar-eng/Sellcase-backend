@@ -1,7 +1,7 @@
 # app/routers/search.py
 
 from datetime import datetime, timedelta
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Dict
 
 import re
 
@@ -487,6 +487,82 @@ def search_stats(limit: int = 20, db: Session = Depends(get_db)):
         top_categories=top_categories,
         empty_queries=empty_queries,
     )
+
+class AutoKeywordsOut(BaseModel):
+    updated_categories: Dict[str, int]  # slug -> сколько слов добавили
+
+
+@router.post("/auto-keywords", response_model=AutoKeywordsOut)
+def auto_keywords(
+    category_slug: Optional[str] = None,
+    limit_per_category: int = 50,
+    min_popularity: int = 1,
+    db: Session = Depends(get_db),
+):
+    """
+    Полуавтоматическое пополнение keywords у категорий из search_queries.
+
+    - Если category_slug указан — работаем только по одной категории.
+    - Если нет — пробегаем по всем категориям, у которых есть запросы.
+    """
+
+    updated: Dict[str, int] = {}
+
+    # Соберём список категорий, по которым есть запросы
+    q = db.query(SearchQuery.category_id).filter(SearchQuery.category_id.is_not(None))
+    if category_slug:
+        cat = db.query(Category).filter(Category.slug == category_slug).first()
+        if not cat:
+            return AutoKeywordsOut(updated_categories={})
+        q = q.filter(SearchQuery.category_id == cat.id)
+
+    category_ids = {row[0] for row in q.distinct().all()}
+
+    if category_slug and category_ids and len(category_ids) == 1:
+        categories = [cat]
+    else:
+        categories = db.query(Category).filter(Category.id.in_(category_ids)).all()
+
+    for cat in categories:
+        # Топ запросы по категории
+        top_queries = (
+            db.query(SearchQuery.normalized_query, SearchQuery.popularity)
+            .filter(
+                SearchQuery.category_id == cat.id,
+                SearchQuery.popularity >= min_popularity,
+            )
+            .order_by(SearchQuery.popularity.desc())
+            .limit(limit_per_category)
+            .all()
+        )
+
+        if not top_queries:
+            continue
+
+        # Текущие keywords
+        existing = set()
+        if cat.keywords:
+            for part in cat.keywords.split(","):
+                part = part.strip().lower()
+                if part:
+                    existing.add(part)
+
+        added = 0
+        for nq, pop in top_queries:
+            kw = nq.strip().lower()
+            if not kw or kw in existing:
+                continue
+            existing.add(kw)
+            added += 1
+
+        if added > 0:
+            cat.keywords = ", ".join(sorted(existing))
+            updated[cat.slug] = added
+
+    if updated:
+        db.commit()
+
+    return AutoKeywordsOut(updated_categories=updated)
 
 @router.get("/suggestions")
 def get_suggestions(
