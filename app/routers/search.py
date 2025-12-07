@@ -395,17 +395,71 @@ def search_stats(limit: int = 20, db: Session = Depends(get_db)):
     )
 
 @router.get("/suggestions")
-def get_suggestions(query: str, db: Session = Depends(get_db)):
-    normalized = query.strip().lower()
+def get_suggestions(
+    query: str,
+    limit: int = 5,
+    db: Session = Depends(get_db),
+):
+    """
+    Умные подсказки:
+    1) Похожие прошлые запросы (SearchQuery) по префиксу.
+    2) Если мало — добавляем названия категорий по name / name_ru / keywords.
+    """
 
-    results = (
+    normalized = query.strip().lower()
+    prefix = f"{normalized}%"
+
+    suggestions: list[str] = []
+    seen: set[str] = set()
+
+    # 1. Подсказки из прошлых запросов
+    prev_queries = (
         db.query(SearchQuery)
-        .filter(SearchQuery.normalized_query.like(f"{normalized}%"))
-        .order_by(SearchQuery.popularity.desc())
-        .limit(5)
+        .filter(SearchQuery.normalized_query.ilike(prefix))
+        .order_by(
+            SearchQuery.popularity.desc(),
+            SearchQuery.results_count.desc(),
+            SearchQuery.created_at.desc(),
+        )
+        .limit(limit)
         .all()
     )
 
-    suggestions = [r.normalized_query for r in results]
+    for q in prev_queries:
+        value = q.normalized_query
+        if value and value not in seen:
+            suggestions.append(value)
+            seen.add(value)
+
+    # 2. Если подсказок мало — добавляем категории
+    if len(suggestions) < limit:
+        # Берём первое слово из запроса для поиска по keywords
+        main_term = normalized.split()[0] if normalized else ""
+        if main_term:
+            like_pattern = f"%{main_term}%"
+
+            categories = (
+                db.query(Category)
+                .filter(
+                    or_(
+                        Category.name.ilike(like_pattern),
+                        Category.name_ru.ilike(like_pattern),
+                        Category.keywords.ilike(like_pattern),
+                    )
+                )
+                .limit(limit)
+                .all()
+            )
+
+            for c in categories:
+                label = c.name_ru or c.name
+                if not label:
+                    continue
+                low = label.lower()
+                if low not in seen:
+                    suggestions.append(label)
+                    seen.add(low)
+                if len(suggestions) >= limit:
+                    break
 
     return {"suggestions": suggestions}
