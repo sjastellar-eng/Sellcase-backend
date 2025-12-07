@@ -13,6 +13,29 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Category, SearchQuery
 
+def normalize_query_advanced(q: str) -> str:
+    q = q.strip().lower()
+
+    repl = {
+        "айф": "айфон",
+        "iphone": "айфон",
+        "ifon": "айфон",
+        "смартф": "смартфон",
+        "тел": "телефон",
+        "ноут": "ноутбук",
+        "mac": "макбук",
+        "macbook": "макбук",
+        "квар": "квартира",
+        "оренда": "аренда",
+        "бу": "б/у",
+    }
+
+    for key, val in repl.items():
+        if q.startswith(key):
+            return val
+
+    return q
+
 router = APIRouter(
     prefix="/search",
     tags=["search"],
