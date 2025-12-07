@@ -179,13 +179,13 @@ class SearchLogResponse(BaseModel):
 
 # ==== Схемы для статистики =====
 
-class TopQueryOut(BaseModel):
+class SearchStatItem(BaseModel):
     id: int
     query: str
     normalized_query: str
-    category_id: Optional[int] = None
-    category_slug: Optional[str] = None
-    category_name: Optional[str] = None
+    category_id: Optional[int]
+    category_slug: Optional[str]
+    category_name: Optional[str]
     results_count: int
     popularity: int
     source: str
@@ -195,19 +195,30 @@ class TopQueryOut(BaseModel):
         orm_mode = True
 
 
-class TopCategoryOut(BaseModel):
+class CategoryStatItem(BaseModel):
     category_id: int
-    slug: str
-    name: str
-    name_ru: Optional[str] = None
-    total_popularity: int
-    avg_results: float
+    category_slug: str
+    category_name: str
+    total_searches: int
+
+    class Config:
+        orm_mode = True
+
+
+class EmptyQueryItem(BaseModel):
+    id: int
+    query: str
+    normalized_query: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
 
 
 class SearchStatsOut(BaseModel):
-    top_queries: List[TopQueryOut]
-    top_categories: List[TopCategoryOut]
-    empty_queries: List[TopQueryOut]
+    top_queries: List[SearchStatItem]
+    top_categories: List[CategoryStatItem]
+    empty_queries: List[EmptyQueryItem]
 
 
 # ===== Внутренняя функция логирования =====
@@ -315,8 +326,6 @@ def search_categories(
         for c in categories
     ]
 
-# ===== /search/autocomplete =====
-# ===== /search/autocomplete =====
 
 
 # ===== /search/autocomplete =====
@@ -428,8 +437,11 @@ def log_search_endpoint(
 
 # ===== /search/stats =====
 
-@router.get("/stats")
-def search_stats(limit: int = 20, db: Session = Depends(get_db)):
+@router.get("/stats", response_model=SearchStatsOut)
+def search_stats(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+):
     """
     Возвращает статистику поиска:
     - Топ популярных запросов
@@ -440,13 +452,17 @@ def search_stats(limit: int = 20, db: Session = Depends(get_db)):
     # --- Топ запросов ---
     top_queries_orm = (
         db.query(SearchQuery)
-        .order_by(SearchQuery.popularity.desc(), SearchQuery.created_at.desc())
+        .order_by(
+            SearchQuery.popularity.desc(),
+            SearchQuery.results_count.desc(),
+            SearchQuery.created_at.desc(),
+        )
         .limit(limit)
         .all()
     )
 
     top_queries = [
-        SearchQueryOut(
+        SearchStatItem(
             id=q.id,
             query=q.query,
             normalized_query=q.normalized_query,
@@ -460,6 +476,56 @@ def search_stats(limit: int = 20, db: Session = Depends(get_db)):
         )
         for q in top_queries_orm
     ]
+
+    # --- Топ категорий ---
+    top_categories_orm = (
+        db.query(
+            Category.id.label("category_id"),
+            Category.slug.label("category_slug"),
+            Category.name.label("category_name"),
+            func.count(SearchQuery.id).label("total_searches"),
+        )
+        .join(SearchQuery, SearchQuery.category_id == Category.id)
+        .group_by(Category.id, Category.slug, Category.name)
+        .order_by(func.count(SearchQuery.id).desc())
+        .limit(limit)
+        .all()
+    )
+
+    top_categories = [
+        CategoryStatItem(
+            category_id=row.category_id,
+            category_slug=row.category_slug,
+            category_name=row.category_name,
+            total_searches=row.total_searches,
+        )
+        for row in top_categories_orm
+    ]
+
+    # --- Пустые запросы ---
+    empty_queries_orm = (
+        db.query(SearchQuery)
+        .filter(SearchQuery.results_count == 0)
+        .order_by(SearchQuery.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    empty_queries = [
+        EmptyQueryItem(
+            id=q.id,
+            query=q.query,
+            normalized_query=q.normalized_query,
+            created_at=q.created_at,
+        )
+        for q in empty_queries_orm
+    ]
+
+    return SearchStatsOut(
+        top_queries=top_queries,
+        top_categories=top_categories,
+        empty_queries=empty_queries,
+    )
 
     # --- Топ категорий ---
     top_categories = (
