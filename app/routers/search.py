@@ -587,6 +587,82 @@ def search_stats(
         empty_queries=empty_queries,
     )
 
+# ===== /search/trends =====
+
+@router.get("/trends", response_model=TrendsOut)
+def search_trends(
+    period: Literal["week", "month"] = Query("week"),
+    limit_queries: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """
+    Тренды запросов по периодам (аналог Google Trends):
+
+    - period: "week" или "month"
+    - limit_queries: сколько топ-запросов возвращать
+    """
+
+    # для PostgreSQL используем date_trunc
+    if period == "week":
+        trunc_unit = "week"
+    else:
+        trunc_unit = "month"
+
+    period_start_expr = func.date_trunc(trunc_unit, SearchQuery.created_at)
+
+    agg_rows = (
+        db.query(
+            SearchQuery.normalized_query.label("normalized_query"),
+            period_start_expr.label("period_start"),
+            func.sum(SearchQuery.popularity).label("total_popularity"),
+            func.sum(SearchQuery.results_count).label("total_results"),
+        )
+        .group_by(SearchQuery.normalized_query, period_start_expr)
+        .order_by(period_start_expr.desc(), func.sum(SearchQuery.popularity).desc())
+        .all()
+    )
+
+    # 1) считаем суммарную популярность по каждому normalized_query
+    totals: Dict[str, int] = {}
+    for row in agg_rows:
+        totals[row.normalized_query] = totals.get(row.normalized_query, 0) + row.total_popularity
+
+    # 2) берём топ-N запросов по суммарной популярности
+    top_keys = {
+        q
+        for q, _ in sorted(totals.items(), key=lambda item: item[1], reverse=True)[
+            :limit_queries
+        ]
+    }
+
+    # 3) собираем таймсерии по выбранным запросам
+    series: Dict[str, List[TrendPointOut]] = {k: [] for k in top_keys}
+    for row in agg_rows:
+        if row.normalized_query not in top_keys:
+            continue
+
+        series[row.normalized_query].append(
+            TrendPointOut(
+                period_start=row.period_start,
+                total_popularity=row.total_popularity,
+                total_results=row.total_results,
+            )
+        )
+
+    # 4) упаковываем в ответ, сортируем запросы по суммарной популярности
+    queries: List[QueryTrendOut] = []
+    for norm, points in series.items():
+        # сортируем точки по времени (на всякий случай)
+        points.sort(key=lambda p: p.period_start)
+        queries.append(QueryTrendOut(normalized_query=norm, points=points))
+
+    queries.sort(
+        key=lambda item: sum(p.total_popularity for p in item.points),
+        reverse=True,
+    )
+
+    return TrendsOut(period=period, queries=queries)
+
 class AutoKeywordsOut(BaseModel):
     updated_categories: Dict[str, int]  # slug -> сколько слов добавили
 
