@@ -511,7 +511,7 @@ def search_stats(
     top_clusters = sorted_clusters[:limit]
 
     top_queries = [
-        SearchQueryOut(
+        SearchStatItem(
             id=cl["id"],
             query=cl["query"],
             normalized_query=cl["normalized_query"],
