@@ -131,6 +131,7 @@ class CategoryOut(BaseModel):
     slug: str
     name: str
     name_ru: Optional[str] = None
+    keywords: Optional[str] = None   # 👈 добавили
 
     class Config:
         orm_mode = True
