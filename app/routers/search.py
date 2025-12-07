@@ -463,32 +463,67 @@ def search_stats(
     - Пустые (0 результатов) запросы
     """
 
-    # --- Топ запросов ---
-    top_queries_orm = (
+    # --- Топ запросов (кластеризация по normalized_query + category_id) ---
+    raw_queries = (
         db.query(SearchQuery)
-        .order_by(
-            SearchQuery.popularity.desc(),
-            SearchQuery.results_count.desc(),
-            SearchQuery.created_at.desc(),
-        )
-        .limit(limit)
+        .order_by(SearchQuery.popularity.desc(), SearchQuery.created_at.desc())
+        .limit(200)  # берём побольше, потом режем до limit после агрегации
         .all()
     )
 
+    clusters: Dict[tuple, dict] = {}
+
+    for q in raw_queries:
+        key = (q.normalized_query, q.category_id)
+
+        if key not in clusters:
+            clusters[key] = {
+                "id": q.id,
+                "query": q.query,
+                "normalized_query": q.normalized_query,
+                "category_id": q.category_id,
+                "category": q.category,  # сохраним объект категории как есть
+                "results_count": 0,
+                "popularity": 0,
+                "source": q.source,
+                "created_at": q.created_at,
+            }
+
+        agg = clusters[key]
+        agg["results_count"] += q.results_count
+        agg["popularity"] += q.popularity
+        # самый свежий запрос в кластере
+        if q.created_at > agg["created_at"]:
+            agg["created_at"] = q.created_at
+            agg["query"] = q.query   # последнюю формулировку тоже можно обновить
+            agg["source"] = q.source
+
+    # теперь сортируем кластеры:
+    # 1) по суммарной популярности
+    # 2) по свежести
+    sorted_clusters = sorted(
+        clusters.values(),
+        key=lambda x: (x["popularity"], x["created_at"]),
+        reverse=True,
+    )
+
+    # режем до limit
+    top_clusters = sorted_clusters[:limit]
+
     top_queries = [
-        SearchStatItem(
-            id=q.id,
-            query=q.query,
-            normalized_query=q.normalized_query,
-            category_id=q.category_id,
-            category_slug=q.category.slug if q.category else None,
-            category_name=q.category.name if q.category else None,
-            results_count=q.results_count,
-            popularity=q.popularity,
-            source=q.source,
-            created_at=q.created_at,
+        SearchQueryOut(
+            id=cl["id"],
+            query=cl["query"],
+            normalized_query=cl["normalized_query"],
+            category_id=cl["category_id"],
+            category_slug=cl["category"].slug if cl["category"] else None,
+            category_name=cl["category"].name if cl["category"] else None,
+            results_count=cl["results_count"],
+            popularity=cl["popularity"],
+            source=cl["source"],
+            created_at=cl["created_at"],
         )
-        for q in top_queries_orm
+        for cl in top_clusters
     ]
 
     # --- Топ категорий ---
