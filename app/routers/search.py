@@ -622,3 +622,41 @@ def get_suggestions(
     items = items[:limit]
 
     return {"suggestions": items}
+
+class TrainingSample(BaseModel):
+    query: str
+    normalized_query: str
+    category_slug: Optional[str]
+    results_count: int
+    popularity: int
+    created_at: datetime
+
+
+@router.get("/training-dataset", response_model=List[TrainingSample])
+def training_dataset(
+    limit: int = 1000,
+    db: Session = Depends(get_db),
+):
+    """
+    Выгрузка датасета для обучения ML-модели.
+    """
+    rows = (
+        db.query(SearchQuery)
+        .order_by(SearchQuery.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    samples: List[TrainingSample] = []
+    for r in rows:
+        samples.append(
+            TrainingSample(
+                query=r.query,
+                normalized_query=r.normalized_query,
+                category_slug=r.category.slug if r.category else None,
+                results_count=r.results_count,
+                popularity=r.popularity,
+                created_at=r.created_at,
+            )
+        )
+    return samples
