@@ -220,6 +220,20 @@ class SearchStatsOut(BaseModel):
     top_categories: List[CategoryStatItem]
     empty_queries: List[EmptyQueryItem]
 
+class TrendPointOut(BaseModel):
+    period_start: datetime
+    total_popularity: int
+    total_results: int
+
+
+class QueryTrendOut(BaseModel):
+    normalized_query: str
+    points: List[TrendPointOut]
+
+
+class TrendsOut(BaseModel):
+    period: Literal["week", "month"]
+    queries: List[QueryTrendOut]
 
 # ===== Внутренняя функция логирования =====
 
