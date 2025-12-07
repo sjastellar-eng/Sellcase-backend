@@ -1,6 +1,6 @@
 # app/routers/search.py
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Literal, Optional
 
 import re
@@ -501,15 +501,18 @@ def get_suggestions(
 
     # 1. Подсказки из прошлых запросов (SearchQuery)
     prev = (
-        db.query(SearchQuery)
-        .filter(SearchQuery.normalized_query.ilike(f"{q_norm}%"))
-        .order_by(
-            SearchQuery.popularity.desc(),
-            SearchQuery.results_count.desc(),
-            SearchQuery.created_at.desc(),
-        )
-        .limit(limit)
-        .all()
+    db.query(SearchQuery)
+    .filter(
+        SearchQuery.normalized_query.ilike(f"{q_norm}%"),
+        SearchQuery.created_at >= cutoff,
+    )
+    .order_by(
+        SearchQuery.popularity.desc(),
+        SearchQuery.results_count.desc(),
+        SearchQuery.created_at.desc(),
+    )
+    .limit(limit)
+    .all()
     )
 
     for p in prev:
