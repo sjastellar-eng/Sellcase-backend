@@ -296,7 +296,6 @@ def search_categories(
         .order_by(Category.name.asc())
         .limit(20)
         ).all()
-)
 
 return [
     CategoryOut(
