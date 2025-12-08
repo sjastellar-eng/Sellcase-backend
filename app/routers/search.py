@@ -473,7 +473,7 @@ def search_stats(
 ):
     """
     Возвращает статистику поиска:
-    - Топ популярных запросов
+    - Топ популярных запросов (кластеризованных по normalized_query + category_id)
     - Топ категорий
     - Пустые (0 результатов) запросы
     """
@@ -481,171 +481,15 @@ def search_stats(
     # --- Топ запросов (кластеризация по normalized_query + category_id) ---
     raw_queries = (
         db.query(SearchQuery)
-        .order_by(SearchQuery.popularity.desc(), SearchQuery.created_at.desc())
-        .limit(200)  # берём побольше, потом режем до limit после агрегации
-        .all()
-    )
-
-    clusters: Dict[tuple, dict] = {}
-
-    for q in raw_queries:
-        key = (q.normalized_query, q.category_id)
-
-        if key not in clusters:
-            clusters[key] = {
-                "id": q.id,
-                "query": q.query,
-                "normalized_query": q.normalized_query,
-                "category_id": q.category_id,
-                "category": q.category,  # сохраним объект категории как есть
-                "results_count": 0,
-                "popularity": 0,
-                "source": q.source,
-                "created_at": q.created_at,
-            }
-
-        agg = clusters[key]
-        agg["results_count"] += q.results_count
-        agg["popularity"] += q.popularity
-        # самый свежий запрос в кластере
-        if q.created_at > agg["created_at"]:
-            agg["created_at"] = q.created_at
-            agg["query"] = q.query   # последнюю формулировку тоже можно обновить
-            agg["source"] = q.source
-
-    # теперь сортируем кластеры:
-    # 1) по суммарной популярности
-    # 2) по свежести
-    sorted_clusters = sorted(
-        clusters.values(),
-        key=lambda x: (x["popularity"], x["created_at"]),
-        reverse=True,
-    )
-
-    # режем до limit
-    top_clusters = sorted_clusters[:limit]
-
-    top_queries = [
-        SearchStatItem(
-            id=cl["id"],
-            query=cl["query"],
-            normalized_query=cl["normalized_query"],
-            category_id=cl["category_id"],
-            category_slug=cl["category"].slug if cl["category"] else None,
-            category_name=cl["category"].name if cl["category"] else None,
-            results_count=cl["results_count"],
-            popularity=cl["popularity"],
-            source=cl["source"],
-            created_at=cl["created_at"],
-        )
-        for cl in top_clusters
-    ]
-
-    # --- Топ категорий ---
-    top_categories_orm = (
-        db.query(
-            Category.id.label("category_id"),
-            Category.slug.label("category_slug"),
-            Category.name.label("category_name"),
-            func.count(SearchQuery.id).label("total_searches"),
-        )
-        .join(SearchQuery, SearchQuery.category_id == Category.id)
-        .group_by(Category.id, Category.slug, Category.name)
-        .order_by(func.count(SearchQuery.id).desc())
-        .limit(limit)
-        .all()
-    )
-
-    top_categories = [
-        CategoryStatItem(
-            category_id=row.category_id,
-            category_slug=row.category_slug,
-            category_name=row.category_name,
-            total_searches=row.total_searches,
-        )
-        for row in top_categories_orm
-    ]
-
-    # --- Пустые запросы ---
-    empty_queries_orm = (
-        db.query(SearchQuery)
-        .filter(SearchQuery.results_count == 0)
-        .order_by(SearchQuery.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-
-    empty_queries = [
-        EmptyQueryItem(
-            id=q.id,
-            query=q.query,
-            normalized_query=q.normalized_query,
-            created_at=q.created_at,
-        )
-        for q in empty_queries_orm
-    ]
-
-@router.get("/stats", response_model=SearchStatsOut)
-def search_stats(
-    limit: int = 20,
-    from_date: Optional[date] = Query(
-        None,
-        description="Дата начала периода (включительно), формат YYYY-MM-DD",
-    ),
-    to_date: Optional[date] = Query(
-        None,
-        description="Дата окончания периода (включительно), формат YYYY-MM-DD",
-    ),
-    db: Session = Depends(get_db),
-):
-    """
-    Возвращает статистику поиска:
-
-    - Топ популярных запросов (с кластеризацией по normalized_query + category_id)
-    - Топ категорий
-    - Пустые (0 результатов) запросы
-
-    Параметры:
-    - limit: сколько записей вернуть в каждом блоке
-    - from_date / to_date: фильтр по дате создания SearchQuery.created_at
-    """
-
-    # ---- Рассчитываем реальные границы дат (datetime) ----
-    date_from_dt: Optional[datetime] = None
-    date_to_dt: Optional[datetime] = None
-
-    if from_date:
-        # с начала дня from_date
-        date_from_dt = datetime.combine(from_date, datetime.min.time())
-
-    if to_date:
-        # до начала дня (to_date + 1), чтобы to_date была включительно
-        date_to_dt = datetime.combine(to_date + timedelta(days=1), datetime.min.time())
-
-    # ---- Топ запросов (кластеризация по normalized_query + category_id) ----
-
-    raw_queries_query = db.query(SearchQuery)
-
-    if date_from_dt:
-        raw_queries_query = raw_queries_query.filter(
-            SearchQuery.created_at >= date_from_dt
-        )
-    if date_to_dt:
-        raw_queries_query = raw_queries_query.filter(
-            SearchQuery.created_at < date_to_dt
-        )
-
-    raw_queries = (
-        raw_queries_query
         .order_by(
             SearchQuery.popularity.desc(),
             SearchQuery.created_at.desc(),
         )
-        .limit(200)  # берём побольше, потом режем до limit после агрегации
+        .limit(200)  # берём побольше, потом режем после агрегации
         .all()
     )
 
-    # Кластеризация по (normalized_query, category_id)
+    # ключ = (normalized_query, category_id)
     clusters: Dict[tuple, dict] = {}
 
     for q in raw_queries:
@@ -657,7 +501,7 @@ def search_stats(
                 "query": q.query,
                 "normalized_query": q.normalized_query,
                 "category_id": q.category_id,
-                "category": q.category,  # ORM-объект категории
+                "category": q.category,  # сам объект Category (может быть None)
                 "results_count": 0,
                 "popularity": 0,
                 "source": q.source,
@@ -674,19 +518,20 @@ def search_stats(
             agg["query"] = q.query
             agg["source"] = q.source
 
-    # Сортируем кластеры:
+    # сортируем кластеры:
     # 1) по суммарной популярности
-    # 2) по свежести
+    # 2) по свежести (created_at)
     sorted_clusters = sorted(
         clusters.values(),
         key=lambda x: (x["popularity"], x["created_at"]),
         reverse=True,
     )
 
-    # Режем до limit
+    # режем до limit
     top_clusters = sorted_clusters[:limit]
 
-    top_queries = [
+    # маппим в Pydantic-модель
+    top_queries: List[SearchStatItem] = [
         SearchStatItem(
             id=cl["id"],
             query=cl["query"],
@@ -701,6 +546,58 @@ def search_stats(
         )
         for cl in top_clusters
     ]
+
+    # --- Топ категорий ---
+    top_categories_rows = (
+        db.query(
+            Category.id.label("category_id"),
+            Category.slug.label("category_slug"),
+            Category.name.label("category_name"),
+            func.count(SearchQuery.id).label("total_searches"),
+        )
+        .join(SearchQuery, SearchQuery.category_id == Category.id)
+        .group_by(Category.id, Category.slug, Category.name)
+        .order_by(func.count(SearchQuery.id).desc())
+        .limit(limit)
+        .all()
+    )
+
+    top_categories: List[CategoryStatItem] = [
+        CategoryStatItem(
+            category_id=row.category_id,
+            category_slug=row.category_slug,
+            category_name=row.category_name,
+            total_searches=row.total_searches,
+        )
+        for row in top_categories_rows
+    ]
+
+    # --- Пустые запросы (0 результатов) ---
+    empty_queries_rows = (
+        db.query(SearchQuery)
+        .filter(SearchQuery.results_count == 0)
+        .order_by(SearchQuery.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    empty_queries: List[EmptyQueryItem] = [
+        EmptyQueryItem(
+            id=q.id,
+            query=q.query,
+            normalized_query=q.normalized_query,
+            created_at=q.created_at,
+        )
+        for q in empty_queries_rows
+    ]
+
+    # ВАЖНО: всегда возвращаем объект SearchStatsOut, а не None
+    return SearchStatsOut(
+        top_queries=top_queries,
+        top_categories=top_categories,
+        empty_queries=empty_queries,
+    )
+
 
     # ---- Топ категорий ----
 
