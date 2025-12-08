@@ -123,6 +123,108 @@ def normalize_query(q: str) -> str:
     q = re.sub(r"\s+", " ", q)
     return q
 
+# ===== Словари брендов и вспомогательные функции =====
+
+# Известные бренды по категориям (можем расширять по ходу)
+KNOWN_BRANDS: Dict[str, Dict[str, str]] = {
+    # Телефоны и смартфоны
+    "electronics_phones": {
+        "iphone": "Apple",
+        "айфон": "Apple",
+        "apple": "Apple",
+        "samsung": "Samsung",
+        "самсунг": "Samsung",
+        "xiaomi": "Xiaomi",
+        "redmi": "Xiaomi",
+        "mi ": "Xiaomi",       # пробел специально, чтобы не ловить случайные совпадения
+        "oneplus": "OnePlus",
+        "huawei": "Huawei",
+        "honor": "Honor",
+        "realme": "Realme",
+        "oppo": "Oppo",
+        "nokia": "Nokia",
+    },
+    # Ноутбуки (пока для будущего)
+    "electronics_laptops": {
+        "macbook": "Apple",
+        "lenovo": "Lenovo",
+        "dell": "Dell",
+        "asus": "Asus",
+        "acer": "Acer",
+        "hp": "HP",
+        "msi": "MSI",
+    },
+}
+
+# Стоп-слова, которые не считаем брендами при эвристике
+BRAND_STOP_WORDS = {
+    "купить",
+    "цена",
+    "кредит",
+    "б/у",
+    "бу",
+    "used",
+    "olx",
+    "дешево",
+    "недорого",
+}
+
+
+def detect_brand_from_query(
+    normalized_query: str,
+    category_slug: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Пытаемся вытащить бренд из normalized_query.
+
+    Стратегия (вариант C):
+    1) Сначала ищем в словаре брендов по категории.
+    2) Потом ищем по всем категориям (на случай, если category_slug не указан).
+    3) Если не нашли — эвристика: берём первое слово из запроса как бренд,
+       если это не стоп-слово, не чистое число и не слишком короткое.
+    """
+    q = normalized_query or ""
+    q = q.strip()
+
+    if not q:
+        return None
+
+    # 1) Сначала проверяем словарь для конкретной категории
+    if category_slug and category_slug in KNOWN_BRANDS:
+        for pattern, brand_name in KNOWN_BRANDS[category_slug].items():
+            if pattern in q:
+                return brand_name
+
+    # 2) Если не нашли — пробегаемся по всем категориям/паттернам
+    for cat_slug, patterns in KNOWN_BRANDS.items():
+        # если категория передана, можем ограничиться ею
+        if category_slug and cat_slug != category_slug:
+            continue
+        for pattern, brand_name in patterns.items():
+            if pattern in q:
+                return brand_name
+
+    # 3) Эвристика: берём первое слово как «кандидата в бренд»
+    tokens = q.split()
+    if not tokens:
+        return None
+
+    first = tokens[0]
+
+    # отсеиваем стоп-слова
+    if first in BRAND_STOP_WORDS:
+        return None
+
+    # отсеиваем чистые числа
+    if first.isdigit():
+        return None
+
+    # очень короткие куски тоже отбрасываем
+    if len(first) < 3:
+        return None
+
+    return first
+
 
 # ===== Pydantic-схемы ответов =====
 
@@ -251,6 +353,18 @@ class QueryTrendOut(BaseModel):
 class TrendsOut(BaseModel):
     period: Literal["week", "month"]
     queries: List[QueryTrendOut]
+
+class BrandStatItem(BaseModel):
+    brand: str
+    category_slug: Optional[str]
+    total_searches: int
+    total_results: int
+    total_popularity: int
+    first_seen: datetime
+    last_seen: datetime
+
+    class Config:
+        orm_mode = True
 
 # ===== Внутренняя функция логирования =====
 
@@ -676,6 +790,93 @@ def search_stats(
         top_categories=top_categories,
         empty_queries=empty_queries,
         )
+
+@router.get("/brands", response_model=List[BrandStatItem])
+def search_brands(
+    category_slug: Optional[str] = Query(
+        None,
+        description="Slug категории (например, electronics_phones). Если не указан — смотрим по всем."
+    ),
+    limit: int = Query(
+        50,
+        ge=1,
+        le=500,
+        description="Максимальное количество брендов в ответе.",
+    ),
+    min_searches: int = Query(
+        1,
+        ge=1,
+        description="Минимальное количество поисков по бренду, чтобы он попал в выдачу.",
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Агрегированная статистика по брендам.
+
+    Источники:
+    - таблица search_queries
+    - словарь брендов KNOWN_BRANDS + эвристика на основе normalized_query
+    """
+
+    # Берём достаточно большой пул запросов, чтобы было из чего агрегировать.
+    # При необходимости потом сделаем пагинацию.
+    rows = (
+        db.query(SearchQuery, Category)
+        .outerjoin(Category, SearchQuery.category_id == Category.id)
+        .order_by(SearchQuery.created_at.desc())
+        .limit(5000)
+        .all()
+    )
+
+    # key: (brand, category_slug) -> агрегированные поля
+    agg: Dict[tuple, dict] = {}
+
+    for q_obj, cat in rows:
+        cat_slug = cat.slug if cat else None
+        norm = q_obj.normalized_query or normalize_query(q_obj.query)
+
+        brand = detect_brand_from_query(norm, cat_slug)
+        if not brand:
+            continue
+
+        key = (brand, cat_slug)
+
+        if key not in agg:
+            agg[key] = {
+                "brand": brand,
+                "category_slug": cat_slug,
+                "total_searches": 0,
+                "total_results": 0,
+                "total_popularity": 0,
+                "first_seen": q_obj.created_at,
+                "last_seen": q_obj.created_at,
+            }
+
+        item = agg[key]
+        item["total_searches"] += 1
+        item["total_results"] += q_obj.results_count or 0
+        item["total_popularity"] += q_obj.popularity or 0
+
+        if q_obj.created_at < item["first_seen"]:
+            item["first_seen"] = q_obj.created_at
+        if q_obj.created_at > item["last_seen"]:
+            item["last_seen"] = q_obj.created_at
+
+    # Превращаем в список BrandStatItem + фильтр по min_searches
+    items: List[BrandStatItem] = [
+        BrandStatItem(**v)
+        for v in agg.values()
+        if v["total_searches"] >= min_searches
+    ]
+
+    # Сортируем: сначала по total_popularity, потом по total_searches, потом по свежести
+    items.sort(
+        key=lambda b: (b.total_popularity, b.total_searches, b.last_seen),
+        reverse=True,
+    )
+
+    # Ограничиваем по limit
+    return items[:limit]
 
 # ===== /search/trends =====
 
