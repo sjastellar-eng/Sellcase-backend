@@ -842,6 +842,7 @@ brand_rows = (
         empty_queries=empty_queries,
         top_brands=top_brands,
     )
+
     
 @router.get("/brands", response_model=List[BrandStatItem])
 def search_brands(
