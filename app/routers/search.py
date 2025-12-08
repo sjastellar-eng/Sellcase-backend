@@ -340,6 +340,7 @@ class SearchStatsOut(BaseModel):
     top_queries: List[SearchStatItem]
     top_categories: List[CategoryStatItem]
     empty_queries: List[EmptyQueryItem]
+    top_brands: List[BrandStatItem] 
 
 class TrendPointOut(BaseModel):
     period_start: datetime
