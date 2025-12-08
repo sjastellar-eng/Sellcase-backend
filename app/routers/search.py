@@ -1,7 +1,9 @@
 # app/routers/search.py
 
 from datetime import datetime, timedelta, date
-from typing import List, Literal, Optional, Dict
+from typing import List, Optional, Dict, Tuple
+from typing_extensions import Literal
+
 
 import re
 
@@ -990,6 +992,149 @@ def search_trends(
     return TrendsOut(
         period=period,
         queries=query_trends,
+    )
+
+@router.get("/brand-trends", response_model=BrandTrendsOut)
+def brand_trends(
+    period: Literal["week", "month"] = Query("week"),
+    category_slug: Optional[str] = Query(
+        None,
+        description="Slug категории (например, electronics_phones). "
+                    "Если не указан — считаем по всем категориям."
+    ),
+    limit_brands: int = Query(
+        20,
+        ge=1,
+        le=100,
+        description="Сколько брендов вернуть в топе."
+    ),
+    periods_back: int = Query(
+        4,
+        ge=1,
+        le=52,
+        description="Сколько периодов назад смотреть (недель или месяцев)."
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Тренды по брендам.
+
+    Аггрегируем поиски по брендам (Apple, Samsung и т.п.) с разбивкой
+    по неделям или месяцам.
+    """
+
+    # --- вспомогательная функция для начала периода ---
+    def get_period_start(dt: datetime) -> datetime:
+        dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        if period == "week":
+            # понедельник текущей недели
+            return dt - timedelta(days=dt.weekday())
+        else:
+            # первое число месяца
+            return dt.replace(day=1)
+
+    # --- определяем с какой даты брать данные ---
+    now = datetime.utcnow()
+    if period == "week":
+        start_date = now - timedelta(weeks=periods_back)
+    else:
+        # грубо: periods_back месяцев назад
+        start_date = now - timedelta(days=30 * periods_back)
+
+    # --- базовый запрос по логам поиска ---
+    query = db.query(SearchQuery)
+
+    # фильтруем по дате
+    query = query.filter(SearchQuery.created_at >= start_date)
+
+    # фильтр по категории (если передан)
+    if category_slug:
+        query = (
+            query
+            .join(Category)
+            .filter(Category.slug == category_slug)
+        )
+    else:
+        query = query.outerjoin(Category)
+
+    rows = query.all()
+
+    # если логов нет — возвращаем пустой объект
+    if not rows:
+        return BrandTrendsOut(period=period, brands=[])
+
+    # --- агрегация по (brand, category_slug, period_start) ---
+    # ключ: (brand, category_slug)
+    # значение: dict[period_start -> агрегаты]
+    buckets: Dict[Tuple[str, Optional[str]], Dict[datetime, dict]] = {}
+
+    for r in rows:
+        cat_slug = r.category.slug if r.category else None
+
+        # используем уже существующую функцию детекции бренда
+        brand = detect_brand_from_query(r.query, cat_slug)
+        if not brand:
+            continue  # пропускаем запросы без бренда
+
+        ps = get_period_start(r.created_at)
+
+        key = (brand, cat_slug)
+        if key not in buckets:
+            buckets[key] = {}
+
+        if ps not in buckets[key]:
+            buckets[key][ps] = {
+                "total_searches": 0,
+                "total_results": 0,
+                "total_popularity": 0,
+            }
+
+        agg = buckets[key][ps]
+        agg["total_searches"] += 1
+        agg["total_results"] += r.results_count
+        agg["total_popularity"] += r.popularity
+
+    if not buckets:
+        return BrandTrendsOut(period=period, brands=[])
+
+    # --- выбираем топ брендов по суммарной популярности ---
+    brand_scores: List[Tuple[Tuple[str, Optional[str]], int]] = []
+    for key, periods in buckets.items():
+        total_popularity = sum(p["total_popularity"] for p in periods.values())
+        brand_scores.append((key, total_popularity))
+
+    brand_scores.sort(key=lambda x: x[1], reverse=True)
+    top_keys = [k for k, _ in brand_scores[:limit_brands]]
+
+    # --- формируем ответ ---
+    brands_out: List[BrandTrendOut] = []
+
+    for (brand, cat_slug) in top_keys:
+        periods_dict = buckets[(brand, cat_slug)]
+        # сортируем точки по дате
+        sorted_points = sorted(periods_dict.items(), key=lambda x: x[0])
+
+        points_out = [
+            BrandTrendPointOut(
+                period_start=ps,
+                total_searches=vals["total_searches"],
+                total_results=vals["total_results"],
+                total_popularity=vals["total_popularity"],
+            )
+            for ps, vals in sorted_points
+        ]
+
+        brands_out.append(
+            BrandTrendOut(
+                brand=brand,
+                category_slug=cat_slug,
+                points=points_out,
+            )
+        )
+
+    return BrandTrendsOut(
+        period=period,
+        brands=brands_out,
     )
 
 class AutoKeywordsOut(BaseModel):
