@@ -824,25 +824,25 @@ brand_rows = (
 )
 
 top_brands = [
-    BrandStatItem(
-        brand=row.brand,
-        category_slug=row.category_slug,
-        total_searches=row.total_searches,
-        total_results=row.total_results or 0,
-        total_popularity=row.total_popularity or 0,
-        first_seen=row.first_seen,
-        last_seen=row.last_seen,
+        BrandStatItem(
+            brand=row.brand,
+            category_slug=row.category_slug,
+            total_searches=row.total_searches,
+            total_results=row.total_results or 0,
+            total_popularity=row.total_popularity or 0,
+            first_seen=row.first_seen,
+            last_seen=row.last_seen,
+        )
+        for row in brand_rows
+    ]
+
+    return SearchStatsOut(
+        top_queries=top_queries,
+        top_categories=top_categories,
+        empty_queries=empty_queries,
+        top_brands=top_brands,
     )
-    for row in brand_rows
-]
-
-     return SearchStatsOut(
-            top_queries=top_queries,
-            top_categories=top_categories,
-            empty_queries=empty_queries,
-            top_brands=top_brands,
-)
-
+    
 @router.get("/brands", response_model=List[BrandStatItem])
 def search_brands(
     category_slug: Optional[str] = Query(
