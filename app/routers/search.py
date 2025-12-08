@@ -836,7 +836,7 @@ top_brands = [
     for row in brand_rows
 ]
 
-return SearchStatsOut(
+     return SearchStatsOut(
             top_queries=top_queries,
             top_categories=top_categories,
             empty_queries=empty_queries,
