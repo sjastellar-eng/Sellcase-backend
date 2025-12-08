@@ -211,9 +211,12 @@ class SearchStatItem(BaseModel):
 
 class CategoryStatItem(BaseModel):
     category_id: int
-    category_slug: str
-    category_name: str
+    category_slug: Optional[str]
+    category_name: Optional[str]
     total_searches: int
+
+    class Config:
+        orm_mode = True
 
     class Config:
         orm_mode = True
