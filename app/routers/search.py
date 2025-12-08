@@ -823,7 +823,7 @@ brand_rows = (
     .all()
 )
 
-top_brands = [
+  top_brands = [
         BrandStatItem(
             brand=row.brand,
             category_slug=row.category_slug,
