@@ -335,6 +335,17 @@ class EmptyQueryItem(BaseModel):
     class Config:
         orm_mode = True
 
+class BrandStatItem(BaseModel):
+    brand: str
+    category_slug: Optional[str]
+    total_searches: int
+    total_results: int
+    total_popularity: int
+    first_seen: datetime
+    last_seen: datetime
+
+    class Config:
+        orm_mode = True
 
 class SearchStatsOut(BaseModel):
     top_queries: List[SearchStatItem]
@@ -374,17 +385,6 @@ class BrandTrendsOut(BaseModel):
     period: Literal["week", "month"]
     brands: List[BrandTrendOut]
 
-class BrandStatItem(BaseModel):
-    brand: str
-    category_slug: Optional[str]
-    total_searches: int
-    total_results: int
-    total_popularity: int
-    first_seen: datetime
-    last_seen: datetime
-
-    class Config:
-        orm_mode = True
 
 # ===== Внутренняя функция логирования =====
 
