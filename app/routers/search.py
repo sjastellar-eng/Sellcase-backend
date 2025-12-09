@@ -892,7 +892,7 @@ def search_stats(
         for row in top_categories_orm
     ]
 
-    # --- Пустые запросы ---
+    # --- Пустые (0 результатов) запросы ---
     empty_queries_orm = (
         db.query(SearchQuery)
         .filter(SearchQuery.results_count == 0)
@@ -912,42 +912,44 @@ def search_stats(
     ]
 
     # --- Топ брендов ---
-brand_rows = (
-    db.query(
-        func.lower(SearchQuery.normalized_query).label("brand"),
-        Category.slug.label("category_slug"),
-        func.count(SearchQuery.id).label("total_searches"),
-        func.sum(SearchQuery.results_count).label("total_results"),
-        func.sum(SearchQuery.popularity_score).label("total_popularity"),
-        func.min(SearchQuery.created_at).label("first_seen"),
-        func.max(SearchQuery.created_at).label("last_seen"),
+    brand_rows = (
+        db.query(
+            func.lower(SearchQuery.normalized_query).label("brand"),
+            Category.slug.label("category_slug"),
+            func.count(SearchQuery.id).label("total_searches"),
+            func.sum(SearchQuery.results_count).label("total_results"),
+            func.sum(SearchQuery.popularity_score).label("total_popularity"),
+            func.min(SearchQuery.created_at).label("first_seen"),
+            func.max(SearchQuery.created_at).label("last_seen"),
+        )
+        .outerjoin(Category, Category.id == SearchQuery.category_id)
+        .group_by(SearchQuery.normalized_query, Category.slug)
+        .order_by(func.count(SearchQuery.id).desc())
+        .limit(limit)
+        .all()
     )
-    .outerjoin(Category, Category.id == SearchQuery.category_id)
-    .group_by(SearchQuery.normalized_query, Category.slug)
-    .order_by(func.count(SearchQuery.id).desc())
-    .limit(limit)
-    .all()
-)
 
-top_brands = [
-    BrandStatItem(
-        brand=row.brand,
-        category_slug=row.category_slug,
-        total_searches=row.total_searches,
-        total_results=row.total_results or 0,
-        total_popularity=row.total_popularity or 0,
-        first_seen=row.first_seen,
-        last_seen=row.last_seen,
+    top_brands = [
+        BrandStatItem(
+            brand=row.brand,
+            category_slug=row.category_slug,
+            total_searches=row.total_searches,
+            total_results=row.total_results or 0,
+            total_popularity=row.total_popularity or 0,
+            first_seen=row.first_seen,
+            last_seen=row.last_seen,
+        )
+        for row in brand_rows
+    ]
+
+    return SearchStatsOut(
+        top_queries=top_queries,
+        top_categories=top_categories,
+        empty_queries=empty_queries,
+        top_brands=top_brands,
     )
-    for row in brand_rows
-]
+    
 
-return SearchStatsOut(
-    top_queries=top_queries,
-    top_categories=top_categories,
-    empty_queries=empty_queries,
-    top_brands=top_brands,
-)
 
     
 @router.get("/brands", response_model=List[BrandStatItem])
