@@ -924,9 +924,13 @@ def search_stats(
         )
         .outerjoin(Category, Category.id == SearchQuery.category_id)
         .group_by(SearchQuery.normalized_query, Category.slug)
-        .order_by(func.count(SearchQuery.id).desc())
-        .limit(limit)
-        .all()
+        .order_by(
+        func.count(SearchQuery.id).desc(),              # A: по числу поисков
+        func.sum(SearchQuery.popularity_score).desc(),  # B: по суммарному score
+        func.max(SearchQuery.created_at).desc(),        # C: по свежести
+    )
+    .limit(limit)
+    .all()
     )
 
     top_brands = [
@@ -949,14 +953,12 @@ def search_stats(
         top_brands=top_brands,
     )
     
-
-
     
 @router.get("/brands", response_model=List[BrandStatItem])
 def search_brands(
     category_slug: Optional[str] = Query(
         None,
-        description="Slug категории (например, electronics_phones). Если не указан — смотрим по всем."
+        description="Slug категории (например, electronics_phones). Если не указан — по всем категориям.",
     ),
     limit: int = Query(
         50,
@@ -967,77 +969,86 @@ def search_brands(
     min_searches: int = Query(
         1,
         ge=1,
+        le=500,
         description="Минимальное количество поисков по бренду, чтобы он попал в выдачу.",
+    ),
+    sort_by: Literal["searches", "popularity", "results", "last_seen"] = Query(
+        "searches",
+        description="Как сортировать бренды: searches / popularity / results / last_seen.",
     ),
     db: Session = Depends(get_db),
 ):
     """
-    Агрегированная статистика по брендам.
-
-    Источники:
-    - таблица search_queries
-    - словарь брендов KNOWN_BRANDS + эвристика на основе normalized_query
+    Возвращает статистику по брендам:
+    - можно фильтровать по категории;
+    - можно управлять сортировкой.
     """
 
-    # Берём достаточно большой пул запросов, чтобы было из чего агрегировать.
-    # При необходимости потом сделаем пагинацию.
-    rows = (
-        db.query(SearchQuery, Category)
-        .outerjoin(Category, SearchQuery.category_id == Category.id)
-        .order_by(SearchQuery.created_at.desc())
-        .limit(5000)
-        .all()
+    # Базовый запрос по брендам
+    q = (
+        db.query(
+            func.lower(SearchQuery.normalized_query).label("brand"),
+            Category.slug.label("category_slug"),
+            func.count(SearchQuery.id).label("total_searches"),
+            func.coalesce(func.sum(SearchQuery.results_count), 0).label("total_results"),
+            func.coalesce(func.sum(SearchQuery.popularity_score), 0).label("total_popularity"),
+            func.min(SearchQuery.created_at).label("first_seen"),
+            func.max(SearchQuery.created_at).label("last_seen"),
+        )
+        # ВАЖНО: inner join — берём только запросы с категорией
+        .join(Category, Category.id == SearchQuery.category_id)
     )
 
-    # key: (brand, category_slug) -> агрегированные поля
-    agg: Dict[tuple, dict] = {}
+    # ----- A. Строгий фильтр по категории -----
+    if category_slug:
+        q = q.filter(Category.slug == category_slug)
 
-    for q_obj, cat in rows:
-        cat_slug = cat.slug if cat else None
-        norm = q_obj.normalized_query or normalize_query(q_obj.query)
+    # Группируем по бренду + категории
+    q = q.group_by(
+        func.lower(SearchQuery.normalized_query),
+        Category.slug,
+    )
 
-        brand = detect_brand_from_query(norm, cat_slug)
-        if not brand:
-            continue
+    # Фильтр по минимальному количеству поисков
+    q = q.having(func.count(SearchQuery.id) >= min_searches)
 
-        key = (brand, cat_slug)
+    # ----- B. Умная сортировка -----
+    if sort_by == "searches":
+        # сначала по количеству поисков, затем по свежести
+        q = q.order_by(
+            func.count(SearchQuery.id).desc(),
+            func.max(SearchQuery.created_at).desc(),
+        )
+    elif sort_by == "popularity":
+        q = q.order_by(
+            func.sum(SearchQuery.popularity_score).desc(),
+            func.count(SearchQuery.id).desc(),
+        )
+    elif sort_by == "results":
+        q = q.order_by(
+            func.sum(SearchQuery.results_count).desc(),
+            func.count(SearchQuery.id).desc(),
+        )
+    else:  # last_seen
+        q = q.order_by(
+            func.max(SearchQuery.created_at).desc(),
+            func.count(SearchQuery.id).desc(),
+        )
 
-        if key not in agg:
-            agg[key] = {
-                "brand": brand,
-                "category_slug": cat_slug,
-                "total_searches": 0,
-                "total_results": 0,
-                "total_popularity": 0,
-                "first_seen": q_obj.created_at,
-                "last_seen": q_obj.created_at,
-            }
+    rows = q.limit(limit).all()
 
-        item = agg[key]
-        item["total_searches"] += 1
-        item["total_results"] += q_obj.results_count or 0
-        item["total_popularity"] += q_obj.popularity or 0
-
-        if q_obj.created_at < item["first_seen"]:
-            item["first_seen"] = q_obj.created_at
-        if q_obj.created_at > item["last_seen"]:
-            item["last_seen"] = q_obj.created_at
-
-    # Превращаем в список BrandStatItem + фильтр по min_searches
-    items: List[BrandStatItem] = [
-        BrandStatItem(**v)
-        for v in agg.values()
-        if v["total_searches"] >= min_searches
+    return [
+        BrandStatItem(
+            brand=row.brand,
+            category_slug=row.category_slug,
+            total_searches=row.total_searches,
+            total_results=row.total_results,
+            total_popularity=row.total_popularity,
+            first_seen=row.first_seen,
+            last_seen=row.last_seen,
+        )
+        for row in rows
     ]
-
-    # Сортируем: сначала по total_popularity, потом по total_searches, потом по свежести
-    items.sort(
-        key=lambda b: (b.total_popularity, b.total_searches, b.last_seen),
-        reverse=True,
-    )
-
-    # Ограничиваем по limit
-    return items[:limit]
 
 # ===== /search/trends =====
 
