@@ -795,6 +795,112 @@ def search_stats(
         .all()
     )
 
+@router.get("/stats", response_model=SearchStatsOut)
+def search_stats(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+):
+    """
+    Возвращает статистику поиска:
+    - Топ популярных запросов
+    - Топ категорий
+    - Пустые (0 результатов) запросы
+    - Топ брендов
+    """
+
+    # --- Топ запросов (кластеризация по normalized_query + category_id) ---
+    raw_queries = (
+        db.query(SearchQuery)
+        .order_by(SearchQuery.popularity.desc(), SearchQuery.created_at.desc())
+        .limit(200)
+        .all()
+    )
+
+    clusters: Dict[tuple, dict] = {}
+
+    for q in raw_queries:
+        key = (q.normalized_query, q.category_id)
+
+        if key not in clusters:
+            clusters[key] = {
+                "id": q.id,
+                "query": q.query,
+                "normalized_query": q.normalized_query,
+                "category_id": q.category_id,
+                "category": q.category,
+                "results_count": 0,
+                "popularity": 0,
+                "source": q.source,
+                "created_at": q.created_at,
+            }
+
+        agg = clusters[key]
+        agg["results_count"] += q.results_count
+        agg["popularity"] += q.popularity
+
+        if q.created_at > agg["created_at"]:
+            agg["created_at"] = q.created_at
+            agg["query"] = q.query
+            agg["source"] = q.source
+
+    sorted_clusters = sorted(
+        clusters.values(),
+        key=lambda x: (x["popularity"], x["created_at"]),
+        reverse=True,
+    )
+
+    top_clusters = sorted_clusters[:limit]
+
+    top_queries = [
+        SearchQueryOut(
+            id=cl["id"],
+            query=cl["query"],
+            normalized_query=cl["normalized_query"],
+            category_id=cl["category_id"],
+            category_slug=cl["category"].slug if cl["category"] else None,
+            category_name=cl["category"].name if cl["category"] else None,
+            results_count=cl["results_count"],
+            popularity=cl["popularity"],
+            source=cl["source"],
+            created_at=cl["created_at"],
+        )
+        for cl in top_clusters
+    ]
+
+    # --- Топ категорий ---
+    top_categories_orm = (
+        db.query(
+            Category.id.label("category_id"),
+            Category.slug.label("category_slug"),
+            Category.name.label("category_name"),
+            func.count(SearchQuery.id).label("total_searches"),
+        )
+        .join(SearchQuery, SearchQuery.category_id == Category.id)
+        .group_by(Category.id, Category.slug, Category.name)
+        .order_by(func.count(SearchQuery.id).desc())
+        .limit(limit)
+        .all()
+    )
+
+    top_categories = [
+        CategoryStatItem(
+            category_id=row.category_id,
+            category_slug=row.category_slug,
+            category_name=row.category_name,
+            total_searches=row.total_searches,
+        )
+        for row in top_categories_orm
+    ]
+
+    # --- Пустые запросы ---
+    empty_queries_orm = (
+        db.query(SearchQuery)
+        .filter(SearchQuery.results_count == 0)
+        .order_by(SearchQuery.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
     empty_queries = [
         EmptyQueryItem(
             id=q.id,
@@ -805,25 +911,25 @@ def search_stats(
         for q in empty_queries_orm
     ]
 
-# --- Топ брендов ---
-brand_rows = (
-    db.query(
-        SearchQuery.normalized_query.label("brand"),
-        Category.slug.label("category_slug"),
-        func.count(SearchQuery.id).label("total_searches"),
-        func.sum(SearchQuery.results_count).label("total_results"),
-        func.sum(SearchQuery.popularity).label("total_popularity"),
-        func.min(SearchQuery.created_at).label("first_seen"),
-        func.max(SearchQuery.created_at).label("last_seen"),
+    # --- Топ брендов ---
+    brand_rows = (
+        db.query(
+            func.lower(SearchQuery.normalized_query).label("brand"),
+            Category.slug.label("category_slug"),
+            func.count(SearchQuery.id).label("total_searches"),
+            func.sum(SearchQuery.results_count).label("total_results"),
+            func.sum(SearchQuery.popularity).label("total_popularity"),
+            func.min(SearchQuery.created_at).label("first_seen"),
+            func.max(SearchQuery.created_at).label("last_seen"),
+        )
+        .outerjoin(Category, Category.id == SearchQuery.category_id)
+        .group_by(SearchQuery.normalized_query, Category.slug)
+        .order_by(func.count(SearchQuery.id).desc())
+        .limit(limit)
+        .all()
     )
-    .outerjoin(Category, Category.id == SearchQuery.category_id)
-    .group_by(SearchQuery.normalized_query, Category.slug)
-    .order_by(func.count(SearchQuery.id).desc())
-    .limit(limit)
-    .all()
-)
 
-  top_brands = [
+    top_brands = [
         BrandStatItem(
             brand=row.brand,
             category_slug=row.category_slug,
@@ -841,7 +947,7 @@ brand_rows = (
         top_categories=top_categories,
         empty_queries=empty_queries,
         top_brands=top_brands,
-    )
+        )
 
     
 @router.get("/brands", response_model=List[BrandStatItem])
