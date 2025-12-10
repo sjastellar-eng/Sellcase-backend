@@ -4,6 +4,28 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+import os
+
+from alembic import context
+from sqlalchemy import engine_from_config, pool
+
+# 👇 вот это добавляем
+try:
+    # пробуем разные названия переменной в app.db
+    from app.db import SQLALCHEMY_DATABASE_URL as database_url
+except ImportError:
+    try:
+        from app.db import DATABASE_URL as database_url
+    except ImportError:
+        # запасной вариант — читаем из переменной окружения
+        database_url = os.getenv("DATABASE_URL")
+
+if not database_url:
+    raise RuntimeError("DATABASE_URL is not set for Alembic")
+
+config = context.config
+config.set_main_option("sqlalchemy.url", database_url)
+
 # берем metadata из моделей — нужно для автогенерации
 from app.models import Base
 target_metadata = Base.metadata
