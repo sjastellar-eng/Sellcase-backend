@@ -1,7 +1,7 @@
 from alembic import op
 import sqlalchemy as sa
 
-# Идентификаторы ревизии Alembic
+# --- Идентификаторы ревизии ---
 revision = "0001_leads"
 down_revision = None
 branch_labels = None
@@ -13,12 +13,12 @@ def upgrade():
         "leads",
         sa.Column("id", sa.Integer(), primary_key=True, index=True),
 
-        # базовые поля (как в app/models.py)
+        # базовые поля
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("phone", sa.String(), nullable=False),
         sa.Column("message", sa.String(), nullable=True),
 
-        # новое — всё nullable, чтобы не ломать существующие данные
+        # новое — всё nullable
         sa.Column("form_name", sa.String(), nullable=True),
         sa.Column("email", sa.String(), nullable=True),
         sa.Column("page", sa.String(), nullable=True),
@@ -31,6 +31,7 @@ def upgrade():
 
         sa.Column("raw", sa.Text(), nullable=True),
 
+        # корректный TIMESTAMP для PostgreSQL
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
