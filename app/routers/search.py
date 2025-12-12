@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, date
 from typing import List, Optional, Dict, Tuple, Any
 from typing_extensions import Literal
-
+from collections import Counter
 
 import re
 
@@ -163,6 +163,30 @@ AI_HINTS = {
     ],
 }
 
+def extract_model_from_query(normalized_query: str, brand: str) -> Optional[str]:
+    if not normalized_query:
+        return None
+
+    q = normalized_query.strip().lower()
+    tokens = [t for t in q.split() if t and t not in STOP_TOKENS]
+
+    if not tokens:
+        return None
+
+    b = brand.lower()
+    if tokens and tokens[0] == b:
+        tokens = tokens[1:]
+
+    if not tokens:
+        return None
+
+    model_tokens = tokens[:4]
+
+    bad = {"телефон", "смартфон", "ноутбук", "планшет", "купить", "продам", "цена"}
+    if len(model_tokens) == 1 and model_tokens[0] in bad:
+        return None
+
+    return " ".join(model_tokens)
 
 def ai_hints(norm: str, items, limit: int):
     """
@@ -1420,6 +1444,48 @@ def brand_trends(
 class AutoKeywordsOut(BaseModel):
     updated_categories: Dict[str, int]  # slug -> сколько слов добавили
 
+
+@router.get("/analytics/top-models", response_model=List[Dict])
+def top_models(
+    days: int = Query(30, ge=1, le=365),
+    brand: Optional[str] = Query(None),
+    category_slug: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=200),
+    min_score: float = Query(0.5, ge=0.0, le=1.0),
+    db: Session = Depends(get_db),
+):
+    since = datetime.utcnow() - timedelta(days=days)
+
+    q = db.query(SearchQuery.normalized_query, SearchQuery.category_id).filter(
+        SearchQuery.created_at >= since
+    )
+
+    if category_slug is not None:
+        q = q.join(Category, Category.id == SearchQuery.category_id).filter(Category.slug == category_slug)
+
+    rows = q.all()
+
+    counter = Counter()
+
+    for (normalized_query, _cat_id) in rows:
+        if not normalized_query:
+            continue
+
+        b, score = extract_brand(normalized_query)
+        if not b or score < min_score:
+            continue
+
+        if brand is not None and b.lower() != brand.lower():
+            continue
+
+        model = extract_model_from_query(normalized_query, b)
+        if not model:
+            continue
+
+        counter[(b, model)] += 1
+
+    top = counter.most_common(limit)
+    return [{"brand": b, "model": m, "count": c} for (b, m), c in top]
 
 @router.post("/auto-keywords", response_model=AutoKeywordsOut)
 def auto_keywords(
