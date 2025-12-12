@@ -1,7 +1,7 @@
 # app/routers/search.py
 
 from datetime import datetime, timedelta, date
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Any
 from typing_extensions import Literal
 
 
@@ -1027,19 +1027,24 @@ def search_stats(
         top_brands=top_brands,
     )
 
-@router.get("/search/stats/brands")
+@router.get("/analytics/top-brands")
 def top_brands(
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(10, ge=1, le=50),
+    min_score: float = Query(0.0, ge=0.0, le=1.0),
     db: Session = Depends(get_db),
-):
+) -> List[Dict[str, Any]]:
     """
-    Топ брендов по поисковым запросам за период
+    Топ брендов по поисковым запросам за период.
+    - days: за сколько дней считать
+    - limit: сколько брендов вернуть
+    - min_score: если extract_brand возвращает (brand, score), можно отсечь слабые совпадения
     """
 
     since = datetime.utcnow() - timedelta(days=days)
 
-    queries = (
+    # Берём только normalized_query за период
+    rows = (
         db.query(SearchQuery.normalized_query)
         .filter(SearchQuery.created_at >= since)
         .all()
@@ -1047,27 +1052,34 @@ def top_brands(
 
     brand_counter: Dict[str, int] = {}
 
-    for (q,) in queries:
+    for (q,) in rows:
         if not q:
             continue
 
-        brand = extract_brand(q)
+        # extract_brand может вернуть:
+        # 1) "Apple" (строка)
+        # 2) ("Apple", 0.83) (кортеж)
+        res = extract_brand(q)
+
+        brand: Optional[str] = None
+        score: float = 1.0
+
+        if isinstance(res, tuple) and len(res) >= 2:
+            brand, score = res[0], float(res[1])
+        else:
+            brand = res
+
         if not brand:
+            continue
+
+        if score < min_score:
             continue
 
         brand_counter[brand] = brand_counter.get(brand, 0) + 1
 
-    # сортировка по убыванию
-    sorted_brands = sorted(
-        brand_counter.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )
+    sorted_brands = sorted(brand_counter.items(), key=lambda x: x[1], reverse=True)
 
-    return [
-        {"brand": brand, "count": count}
-        for brand, count in sorted_brands[:limit]
-]
+    return [{"brand": brand, "count": count} for brand, count in sorted_brands[:limit]]
     
 @router.get("/brands", response_model=List[BrandStatItem])
 def search_brands(
