@@ -1026,7 +1026,48 @@ def search_stats(
         empty_queries=empty_queries,
         top_brands=top_brands,
     )
-    
+
+@router.get("/search/stats/brands")
+def top_brands(
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """
+    Топ брендов по поисковым запросам за период
+    """
+
+    since = datetime.utcnow() - timedelta(days=days)
+
+    queries = (
+        db.query(SearchQuery.normalized_query)
+        .filter(SearchQuery.created_at >= since)
+        .all()
+    )
+
+    brand_counter: Dict[str, int] = {}
+
+    for (q,) in queries:
+        if not q:
+            continue
+
+        brand = extract_brand(q)
+        if not brand:
+            continue
+
+        brand_counter[brand] = brand_counter.get(brand, 0) + 1
+
+    # сортировка по убыванию
+    sorted_brands = sorted(
+        brand_counter.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    return [
+        {"brand": brand, "count": count}
+        for brand, count in sorted_brands[:limit]
+]
     
 @router.get("/brands", response_model=List[BrandStatItem])
 def search_brands(
