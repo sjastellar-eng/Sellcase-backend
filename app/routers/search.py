@@ -44,6 +44,80 @@ def normalize_query_advanced(q: str) -> str:
 
     return q
 
+# Каноническое имя -> список синонимов/вариантов написания
+BRAND_SYNONYMS = {
+    "Apple": ["apple", "iphone", "айфон", "айф", "айфо", "айфончик", "ipad", "айпад", "macbook", "макбук", "mac", "мака"],
+    "Samsung": ["samsung", "самсунг", "самс", "galaxy", "галакси"],
+    "Xiaomi": ["xiaomi", "ксяоми", "сяоми", "mi", "redmi", "poco", "поко", "редми"],
+    "Huawei": ["huawei", "хуавей", "honor", "хонор"],
+    "Lenovo": ["lenovo", "леново"],
+    "HP": ["hp", "hewlett", "павильон", "pavilion"],
+    "Dell": ["dell", "делл"],
+    "Asus": ["asus", "асус", "rog", "зенбук", "zenbook", "vivobook"],
+    "Acer": ["acer", "асер"],
+    "MSI": ["msi", "эмсиай", "мси"],
+    "Sony": ["sony", "сони", "playstation", "ps4", "ps5", "плейстейшн"],
+    "Nike": ["nike", "найк"],
+    "Adidas": ["adidas", "адидас"],
+    "Puma": ["puma", "пума"],
+    "New Balance": ["new balance", "nb", "нью баланс", "ньюбаланс", "баланс"],
+}
+
+# Служебные слова, которые не помогают в определении бренда
+STOP_TOKENS = {
+    "бу", "б/у", "новый", "новая", "нове", "новий", "оригинал", "ориг", "копия",
+    "купить", "продам", "цена", "доставка", "наложка", "торг",
+}
+
+def _tokens(s: str) -> list[str]:
+    # normalize_query у тебя уже приводит к нижнему регистру и чистит пробелы — используем его
+    s = normalize_query(s)
+    # оставим буквы/цифры/пробел
+    s = re.sub(r"[^0-9a-zа-яёіїєґ\s]+", " ", s, flags=re.IGNORECASE)
+    parts = [p for p in s.split() if p and p not in STOP_TOKENS]
+    return parts
+
+def extract_brand(query: str) -> Tuple[Optional[str], float]:
+    """
+    Возвращает (brand, score). score 0..1.
+    brand — каноническое имя из BRAND_SYNONYMS.
+    """
+    qn = normalize_query(query)
+    toks = _tokens(qn)
+    if not toks:
+        return None, 0.0
+
+    # Для поиска фраз типа "new balance"
+    qn_spaced = f" {qn} "
+
+    best_brand = None
+    best_score = 0.0
+
+    for brand, variants in BRAND_SYNONYMS.items():
+        local_best = 0.0
+        for v in variants:
+            v_norm = normalize_query(v)
+
+            # Фразовый матч (для "new balance" / "нью баланс" и т.п.)
+            if " " in v_norm:
+                if f" {v_norm} " in qn_spaced:
+                    local_best = max(local_best, 1.0)
+                continue
+
+            # Токенный матч
+            if v_norm in toks:
+                local_best = max(local_best, 0.95)
+                continue
+
+            # Подстрочный матч для случаев "iphone11", "ps5" и т.п.
+            if v_norm and v_norm in qn:
+                local_best = max(local_best, 0.75)
+
+        if local_best > best_score:
+            best_score = local_best
+            best_brand = brand
+
+    return best_brand, best_score
 
 # ==== СЮДА ВСТАВЬ ЭТО ====
 
