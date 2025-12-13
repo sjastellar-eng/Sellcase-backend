@@ -77,6 +77,31 @@ def _tokens(s: str) -> list[str]:
     parts = [p for p in s.split() if p and p not in STOP_TOKENS]
     return parts
 
+def extract_model_from_query(normalized_query: str, brand: str) -> Optional[str]:
+    if not normalized_query:
+        return None
+
+    q = normalized_query.strip().lower()
+    tokens = [t for t in q.split() if t and t not in STOP_TOKENS]
+
+    if not tokens:
+        return None
+
+    b = brand.lower()
+    if tokens and tokens[0] == b:
+        tokens = tokens[1:]
+
+    if not tokens:
+        return None
+
+    model_tokens = tokens[:4]
+
+    bad = {"телефон", "смартфон", "ноутбук", "планшет", "купить", "продам", "цена"}
+    if len(model_tokens) == 1 and model_tokens[0] in bad:
+        return None
+
+    return " ".join(model_tokens)
+
 def extract_brand(query: str) -> Tuple[Optional[str], float]:
     """
     Возвращает (brand, score). score 0..1.
