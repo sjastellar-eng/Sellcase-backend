@@ -13,8 +13,45 @@ from app.routers import (
     olx_reports,  # новый роутер отчётов
     auth,
 )
-from app.routers import search as search_router
+
+# app/main.py
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.routers import (
+    leads,
+    health,
+    metrics,
+    olx_projects,
+    olx_reports,
+    auth,
+)
+
+from app.routers.search import router as search_router
 from app.routers.analytics import router as analytics_router
+
+app = FastAPI(title="Sellcase API")
+
+# CORS (временно можно широко)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Подключаем роутеры
+app.include_router(health.router)
+app.include_router(auth.router)
+app.include_router(leads.router)
+app.include_router(metrics.router)
+app.include_router(olx_projects.router)
+app.include_router(olx_reports.router)
+
+app.include_router(search_router)
+app.include_router(analytics_router)
 
 app.include_router(analytics_router)
 
