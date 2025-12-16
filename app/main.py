@@ -14,6 +14,9 @@ from app.routers import (
     auth,
 )
 from app.routers import search as search_router
+from app.routers.analytics import router as analytics_router
+
+app.include_router(analytics_router)
 
 import importlib
 
