@@ -1,7 +1,8 @@
 # app/routers/analytics.py
 
 from datetime import datetime, timedelta, date
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Any
+import re
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -9,11 +10,102 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
 from app.db import get_db
-from app.models import SearchQuery  # у тебя именно так импортируется в search.py
+from app.models import SearchQuery, Category  # у тебя именно так импортируется в search.py
 
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
+def _norm_text(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"[^0-9a-zа-яёіїє\s]+", " ", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def _tokens(s: str) -> List[str]:
+    s = _norm_text(s)
+    toks = [t for t in s.split(" ") if t]
+    # можно выкинуть супер-частые слова, если захочешь
+    return toks
+
+def _split_keywords(raw: Any) -> List[str]:
+    """
+    Поддерживаем разные форматы:
+    - None
+    - строка "iphone, айфон, ios"
+    - список ["iphone","айфон"]
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    s = str(raw).strip()
+    if not s:
+        return []
+    # делим по запятым/точкам с запятой/переносам
+    parts = re.split(r"[,\n;]+", s)
+    return [p.strip() for p in parts if p.strip()]
+
+def _category_terms(cat) -> List[str]:
+    """
+    Пытаемся достать термины из Category, не зная точно полей.
+    Поддержим name, name_ru, keywords, synonyms, etc.
+    """
+    terms: List[str] = []
+
+    for field in ["name", "name_ru", "title", "title_ru"]:
+        if hasattr(cat, field):
+            val = getattr(cat, field)
+            if val:
+                terms.append(str(val))
+
+    # keywords/synonyms могут быть строкой или списком
+    for field in ["keywords", "synonyms", "aliases", "tags"]:
+        if hasattr(cat, field):
+            terms += _split_keywords(getattr(cat, field))
+
+    # нормализуем, убираем пустые
+    out = []
+    for t in terms:
+        nt = _norm_text(t)
+        if nt:
+            out.append(nt)
+    return list(dict.fromkeys(out))  # unique preserving order
+
+def _score_category(query_norm: str, query_toks: List[str], cat_terms: List[str]) -> Dict[str, Any]:
+    """
+    Возвращает score и matched tokens/phrases.
+    Логика:
+    - сильный бонус за точное вхождение фразы термина в запрос
+    - бонус за совпадение токенов
+    """
+    score = 0.0
+    matched: List[str] = []
+
+    q = query_norm
+
+    # phrase match (самое сильное)
+    for term in cat_terms:
+        if not term:
+            continue
+        if len(term) >= 3 and term in q:
+            score += 5.0
+            matched.append(term)
+
+    # token overlap
+    term_toks = set()
+    for term in cat_terms:
+        term_toks.update(_tokens(term))
+
+    for t in query_toks:
+        if t in term_toks:
+            score += 1.0
+            matched.append(t)
+
+    # небольшой бонус за количество совпадений (чтобы “iphone 11” сильнее тянуло в смартфоны)
+    uniq = set(matched)
+    score += min(len(uniq), 5) * 0.2
+
+    return {"score": score, "matched": list(dict.fromkeys(matched))}
 
 class TopQueryItem(BaseModel):
     query: str
@@ -34,6 +126,13 @@ class QueryCategoryBest(BaseModel):
     query: str
     category_id: Optional[int]
     count: int
+
+class CategoryGuess(BaseModel):
+    id: Optional[int] = None
+    name: Optional[str] = None
+    confidence: float = 0.0
+    source: str  # "logged" | "auto" | "none"
+    matched: List[str] = []
 
 
 @router.get("/top-search-queries", response_model=List[TopQueryItem])
@@ -138,6 +237,86 @@ def query_to_category(
     )
 
     return [{"category_id": r.category_id, "count": int(r.count)} for r in rows]
+
+
+@router.get("/query-to-category/best-plus", response_model=CategoryGuess)
+def query_to_category_best_plus(
+    query: str = Query(..., min_length=1),
+    days: int = Query(90, ge=1, le=365),
+    user_id: Optional[int] = Query(None, ge=1),
+    db: Session = Depends(get_db),
+):
+    q_norm = _norm_text(query)
+    since = datetime.utcnow() - timedelta(days=days)
+
+    # 1) Пытаемся взять “факт” из логов (если category_id не null)
+    base = (
+        db.query(
+            SearchQuery.category_id.label("category_id"),
+            func.count(SearchQuery.id).label("count"),
+        )
+        .filter(SearchQuery.created_at >= since)
+        .filter(SearchQuery.normalized_query == q_norm)
+    )
+    if user_id is not None:
+        base = base.filter(SearchQuery.user_id == user_id)
+
+    rows = (
+        base.group_by(SearchQuery.category_id)
+        .order_by(desc(func.count(SearchQuery.id)))
+        .all()
+    )
+
+    # если есть ненулевые категории — берём лучшую
+    non_null = [r for r in rows if r.category_id is not None]
+    if non_null:
+        best = non_null[0]
+        cat = db.query(Category).filter(Category.id == best.category_id).first()
+        name = None
+        if cat is not None:
+            # попробуем name / name_ru
+            name = getattr(cat, "name", None) or getattr(cat, "name_ru", None)
+        return {
+            "id": best.category_id,
+            "name": name,
+            "confidence": 1.0,
+            "source": "logged",
+            "matched": [],
+        }
+
+    # 2) Если в логах NULL — угадываем по Category terms
+    cats = db.query(Category).all()
+    if not cats:
+        return {"id": None, "name": None, "confidence": 0.0, "source": "none", "matched": []}
+
+    q_toks = _tokens(q_norm)
+
+    scored = []
+    for c in cats:
+        terms = _category_terms(c)
+        res = _score_category(q_norm, q_toks, terms)
+        scored.append((c, res["score"], res["matched"]))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    top_cat, top_score, top_matched = scored[0]
+    second_score = scored[1][1] if len(scored) > 1 else 0.0
+
+    # confidence: чем сильнее отрыв от второго места — тем выше уверенность
+    if top_score <= 0:
+        return {"id": None, "name": None, "confidence": 0.0, "source": "none", "matched": []}
+
+    confidence = (top_score - second_score) / (top_score + 1e-9)
+    confidence = max(0.0, min(1.0, confidence))
+
+    name = getattr(top_cat, "name", None) or getattr(top_cat, "name_ru", None)
+
+    return {
+        "id": top_cat.id,
+        "name": name,
+        "confidence": round(confidence, 3),
+        "source": "auto",
+        "matched": top_matched[:12],
+    }
 
 
 @router.get("/query-to-category/best", response_model=QueryCategoryBest)
