@@ -238,7 +238,6 @@ def query_to_category(
 
     return [{"category_id": r.category_id, "count": int(r.count)} for r in rows]
 
-
 @router.get("/query-to-category/best-plus", response_model=CategoryGuess)
 def query_to_category_best_plus(
     query: str = Query(..., min_length=1),
@@ -267,15 +266,16 @@ def query_to_category_best_plus(
         .all()
     )
 
-    # если есть ненулевые категории — берём лучшую
+    # Если есть ненулевые категории — берём лучшую и возвращаем logged=1.0
     non_null = [r for r in rows if r.category_id is not None]
     if non_null:
         best = non_null[0]
         cat = db.query(Category).filter(Category.id == best.category_id).first()
+
         name = None
         if cat is not None:
-            # попробуем name / name_ru
             name = getattr(cat, "name", None) or getattr(cat, "name_ru", None)
+
         return {
             "id": best.category_id,
             "name": name,
@@ -295,29 +295,31 @@ def query_to_category_best_plus(
     for c in cats:
         terms = _category_terms(c)
         res = _score_category(q_norm, q_toks, terms)
-        scored.append((c, res["score"], res["matched"]))
+        scored.append((c, float(res["score"]), res["matched"]))
 
     scored.sort(key=lambda x: x[1], reverse=True)
     top_cat, top_score, top_matched = scored[0]
-    second_score = scored[1][1] if len(scored) > 1 else 0.0
 
-if top_score <= 0:
-    return {"id": None, "name": None, "confidence": 0.0, "source": "auto", "matched": []}
+    if top_score <= 0:
+        return {"id": None, "name": None, "confidence": 0.0, "source": "none", "matched": []}
 
-confidence = min(1.0, top_score / 6.0)
+    # --- Новый confidence (под MVP, “человеческий”) ---
+    # База: сила совпадений (0..1)
+    confidence = min(1.0, top_score / 6.0)
 
-if any(len(m) >= 5 for m in top_matched):
-    confidence = min(1.0, confidence + 0.15)
+    # Бонус за “сильные” совпадения (длинные токены / фразы)
+    if any(len(m) >= 5 for m in top_matched):
+        confidence = min(1.0, confidence + 0.15)
 
-name = getattr(top_cat, "name", None)
+    name = getattr(top_cat, "name", None) or getattr(top_cat, "name_ru", None)
 
-return {
-    "id": top_cat.id,
-    "name": name,
-    "confidence": round(confidence, 3),
-    "source": "auto",
-    "matched": top_matched[:12],
-}
+    return {
+        "id": top_cat.id,
+        "name": name,
+        "confidence": round(confidence, 3),
+        "source": "auto",
+        "matched": top_matched[:12],
+    }
 
 
 @router.get("/query-to-category/best", response_model=QueryCategoryBest)
