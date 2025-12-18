@@ -301,22 +301,23 @@ def query_to_category_best_plus(
     top_cat, top_score, top_matched = scored[0]
     second_score = scored[1][1] if len(scored) > 1 else 0.0
 
-    # confidence: чем сильнее отрыв от второго места — тем выше уверенность
-    if top_score <= 0:
-        return {"id": None, "name": None, "confidence": 0.0, "source": "none", "matched": []}
+if top_score <= 0:
+    return {"id": None, "name": None, "confidence": 0.0, "source": "auto", "matched": []}
 
-    confidence = (top_score - second_score) / (top_score + 1e-9)
-    confidence = max(0.0, min(1.0, confidence))
+confidence = min(1.0, top_score / 6.0)
 
-    name = getattr(top_cat, "name", None) or getattr(top_cat, "name_ru", None)
+if any(len(m) >= 5 for m in top_matched):
+    confidence = min(1.0, confidence + 0.15)
 
-    return {
-        "id": top_cat.id,
-        "name": name,
-        "confidence": round(confidence, 3),
-        "source": "auto",
-        "matched": top_matched[:12],
-    }
+name = getattr(top_cat, "name", None)
+
+return {
+    "id": top_cat.id,
+    "name": name,
+    "confidence": round(confidence, 3),
+    "source": "auto",
+    "matched": top_matched[:12],
+}
 
 
 @router.get("/query-to-category/best", response_model=QueryCategoryBest)
