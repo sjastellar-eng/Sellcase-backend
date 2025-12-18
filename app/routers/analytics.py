@@ -70,30 +70,45 @@ def top_search_queries(
 def query_dynamics(
     query: str = Query(..., min_length=1),
     days: int = Query(30, ge=1, le=365),
-    interval: Literal["hour", "day", "week"] = Query("day"),
+    interval: Literal["day", "week"] = Query("day"),
     user_id: Optional[int] = Query(None, ge=1),
     db: Session = Depends(get_db),
 ):
-    since = datetime.utcnow() - timedelta(days=days)
+    q_norm = query.strip().lower()
+
+    now = datetime.utcnow()
+    since = now - timedelta(days=days)
 
     bucket_expr = func.date_trunc(interval, SearchQuery.created_at).label("bucket")
 
-    q = (
-        db.query(
-            bucket_expr,
-            func.count(SearchQuery.id).label("count"),
-        )
+    base = (
+        db.query(bucket_expr, func.count(SearchQuery.id).label("count"))
         .filter(SearchQuery.created_at >= since)
-        .filter(SearchQuery.normalized_query == query.strip().lower())
+        .filter(SearchQuery.normalized_query == q_norm)
     )
-
     if user_id is not None:
-        q = q.filter(SearchQuery.user_id == user_id)
+        base = base.filter(SearchQuery.user_id == user_id)
 
-    rows = q.group_by(bucket_expr).order_by(bucket_expr.asc()).all()
+    rows = base.group_by(bucket_expr).order_by(bucket_expr.asc()).all()
 
-    return [{"bucket": r.bucket.isoformat(), "count": int(r.count)} for r in rows]
+    # Сводим в dict: дата -> count
+    counts = {}
+    for r in rows:
+        # date_trunc возвращает datetime
+        d = r.bucket.date()
+        counts[d] = int(r.count)
 
+    # Генерим сетку дат и заполняем нулями
+    points: List[dict] = []
+    cur = since.date()
+    end = now.date()
+
+    step_days = 1 if interval == "day" else 7
+    while cur <= end:
+        points.append({"bucket": cur.isoformat(), "count": counts.get(cur, 0)})
+        cur = cur + timedelta(days=step_days)
+
+    return points
 
 @router.get("/query-to-category", response_model=List[QueryCategoryItem])
 def query_to_category(
