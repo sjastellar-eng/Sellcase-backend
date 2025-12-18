@@ -1,7 +1,7 @@
 # app/routers/analytics.py
 
 from datetime import datetime, timedelta, date
-from typing import Optional, List, Literal, Any
+from typing import Dict, Optional, List, Literal, Any
 import re
 
 from fastapi import APIRouter, Depends, Query
