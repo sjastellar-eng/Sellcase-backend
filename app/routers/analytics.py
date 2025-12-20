@@ -319,18 +319,5 @@ def query_to_category_best_plus(
         "confidence": round(confidence, 3),
         "source": "auto",
         "matched": top_matched[:12],
-    }
+        }
 
-
-@router.get("/query-to-category/best", response_model=QueryCategoryBest)
-def query_to_category_best(
-    query: str = Query(..., min_length=1),
-    days: int = Query(90, ge=1, le=365),
-    user_id: Optional[int] = Query(None, ge=1),
-    db: Session = Depends(get_db),
-):
-    items = query_to_category(query=query, days=days, user_id=user_id, db=db)
-    if not items:
-        return {"query": query.strip().lower(), "category_id": None, "count": 0}
-    best = items[0]
-    return {"query": query.strip().lower(), "category_id": best["category_id"], "count": best["count"]}
