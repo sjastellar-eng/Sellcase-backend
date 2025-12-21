@@ -131,7 +131,7 @@ class CategoryGuess(BaseModel):
     id: Optional[int] = None
     name: Optional[str] = None
     confidence: float = 0.0
-    source: str  # "logged" | "auto" | "none"
+    source: str = "auto"          # "logged" | "auto" | "none"
     matched: List[str] = []
 
 
@@ -238,70 +238,52 @@ def query_to_category(
 
     return [{"category_id": r.category_id, "count": int(r.count)} for r in rows]
 
-
-@router.get(
-    "/query-to-category/best-plus",
-    response_model=QueryCategoryBest,
-)
+@router.get("/query-to-category/best-plus", response_model=CategoryGuess)
 def query_to_category_best_plus(
     query: str = Query(..., min_length=1),
     days: int = Query(90, ge=1, le=365),
     user_id: Optional[int] = Query(None, ge=1),
     db: Session = Depends(get_db),
 ):
-    """
-    Лучшее определение категории для запроса:
-    1) пробуем по логам (если category_id есть)
-    2) если NULL — угадываем по terms категорий
-    """
-
     q_norm = query.strip().lower()
     since = datetime.utcnow() - timedelta(days=days)
 
-    # --- 1) Пробуем взять из логов (если category_id не null) ---
-    base_query = (
+    # --- 1) logged: если category_id уже есть в логах ---
+    base = (
         db.query(
-            SearchQuery.category_id,
+            SearchQuery.category_id.label("category_id"),
             func.count(SearchQuery.id).label("cnt"),
         )
-        .filter(SearchQuery.normalized_query == q_norm)
         .filter(SearchQuery.created_at >= since)
+        .filter(SearchQuery.normalized_query == q_norm)
     )
-
     if user_id is not None:
-        base_query = base_query.filter(SearchQuery.user_id == user_id)
+        base = base.filter(SearchQuery.user_id == user_id)
 
     rows = (
-        base_query
-        .group_by(SearchQuery.category_id)
+        base.group_by(SearchQuery.category_id)
         .order_by(func.count(SearchQuery.id).desc())
         .all()
     )
 
-    # Если есть явная категория в логах — возвращаем 1.0 (logged)
     for category_id, cnt in rows:
         if category_id is not None:
             cat = db.query(Category).filter(Category.id == category_id).first()
-            if cat:
+            name = None
+            if cat is not None:
                 name = getattr(cat, "name", None) or getattr(cat, "name_ru", None)
-                return {
-                    "id": cat.id,
-                    "name": name,
-                    "confidence": 1.0,
-                    "source": "logged",
-                    "matched": [],
-                }
+            return {
+                "id": category_id,
+                "name": name,
+                "confidence": 1.0,
+                "source": "logged",
+                "matched": [],
+            }
 
-    # --- 2) Если в логах NULL → auto-match по категориям ---
+    # --- 2) auto: если в логах NULL → угадываем по категориям ---
     cats = db.query(Category).all()
     if not cats:
-        return {
-            "id": None,
-            "name": None,
-            "confidence": 0.0,
-            "source": "auto",
-            "matched": [],
-        }
+        return {"id": None, "name": None, "confidence": 0.0, "source": "none", "matched": []}
 
     q_tokens = _tokens(q_norm)
 
@@ -317,35 +299,24 @@ def query_to_category_best_plus(
     second_score = scored[1][1] if len(scored) > 1 else 0.0
 
     if top_score <= 0:
-        return {
-            "id": None,
-            "name": None,
-            "confidence": 0.0,
-            "source": "auto",
-            "matched": [],
-        }
+        return {"id": None, "name": None, "confidence": 0.0, "source": "none", "matched": []}
 
-    # --- CONFIDENCE (устойчивый, MVP-friendly, НЕ всегда 1) ---
-    # 1) База: сила совпадений (масштабируем, чтобы 1 слово не давало 1.0)
+    # --- confidence (НЕ всегда 1) ---
     confidence = min(1.0, top_score / 10.0)
 
-    # 2) Небольшой бонус за “сильные” совпадения (длинные токены / фразы)
     if any(len(m) >= 5 for m in top_matched):
         confidence = min(1.0, confidence + 0.10)
 
-    # 3) Бонус за отрыв от второго места (если есть конкуренция)
     gap = top_score - second_score
     if gap >= 2:
         confidence = min(1.0, confidence + 0.10)
-
-    confidence = round(confidence, 3)
 
     name = getattr(top_cat, "name", None) or getattr(top_cat, "name_ru", None)
 
     return {
         "id": top_cat.id,
         "name": name,
-        "confidence": confidence,
+        "confidence": round(confidence, 3),
         "source": "auto",
         "matched": top_matched[:12],
     }
