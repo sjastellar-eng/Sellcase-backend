@@ -134,6 +134,141 @@ class CategoryGuess(BaseModel):
     source: str = "auto"          # "logged" | "auto" | "none"
     matched: List[str] = []
 
+class CategoryGuessOut(BaseModel):
+    id: Optional[int] = None
+    name: Optional[str] = None
+    confidence: float
+    source: str
+    matched: List[str]
+
+
+class TopQueryWithCategoryOut(BaseModel):
+    query: str
+    count: int
+    category: CategoryGuessOut
+
+
+def _best_plus_guess(db: Session, query: str, days: int, user_id: Optional[int]):
+    """
+    Внутренняя версия /best-plus, чтобы переиспользовать логику в других эндпоинтах.
+    Возвращает dict под CategoryGuessOut.
+    """
+    q_norm = query.strip().lower()
+    since = datetime.utcnow() - timedelta(days=days)
+
+    # 1) logged
+    base_query = (
+        db.query(
+            SearchQuery.category_id,
+            func.count(SearchQuery.id).label("cnt"),
+        )
+        .filter(SearchQuery.normalized_query == q_norm)
+        .filter(SearchQuery.created_at >= since)
+    )
+
+    if user_id is not None:
+        base_query = base_query.filter(SearchQuery.user_id == user_id)
+
+    rows = (
+        base_query.group_by(SearchQuery.category_id)
+        .order_by(func.count(SearchQuery.id).desc())
+        .all()
+    )
+
+    for category_id, cnt in rows:
+        if category_id is not None:
+            cat = db.query(Category).filter(Category.id == category_id).first()
+            if cat:
+                name = getattr(cat, "name", None) or getattr(cat, "name_ru", None)
+                return {
+                    "id": cat.id,
+                    "name": name,
+                    "confidence": 1.0,
+                    "source": "logged",
+                    "matched": [],
+                }
+
+    # 2) auto
+    cats = db.query(Category).all()
+    if not cats:
+        return {"id": None, "name": None, "confidence": 0.0, "source": "auto", "matched": []}
+
+    q_tokens = _tokens(q_norm)
+    scored = []
+
+    for c in cats:
+        terms = _category_terms(c)
+        res = _score_category(q_norm, q_tokens, terms)
+        scored.append((c, float(res.get("score", 0.0)), res.get("matched", [])))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    top_cat, top_score, top_matched = scored[0]
+    second_score = scored[1][1] if len(scored) > 1 else 0.0
+
+    if top_score <= 0:
+        return {"id": None, "name": None, "confidence": 0.0, "source": "auto", "matched": []}
+
+    confidence = min(1.0, top_score / 10.0)
+
+    if any(len(m) >= 5 for m in top_matched):
+        confidence = min(1.0, confidence + 0.10)
+
+    gap = top_score - second_score
+    if gap >= 2:
+        confidence = min(1.0, confidence + 0.10)
+
+    name = getattr(top_cat, "name", None) or getattr(top_cat, "name_ru", None)
+
+    return {
+        "id": top_cat.id,
+        "name": name,
+        "confidence": round(confidence, 3),
+        "source": "auto",
+        "matched": top_matched[:12],
+    }
+
+
+@router.get(
+    "/top-search-queries-with-category",
+    response_model=List[TopQueryWithCategoryOut],
+)
+def top_search_queries_with_category(
+    days: int = Query(7, ge=1, le=365),
+    limit: int = Query(20, ge=1, le=200),
+    user_id: Optional[int] = Query(None, ge=1),
+    db: Session = Depends(get_db),
+):
+    since = datetime.utcnow() - timedelta(days=days)
+
+    q = (
+        db.query(
+            SearchQuery.normalized_query.label("query"),
+            func.count(SearchQuery.id).label("count"),
+        )
+        .filter(SearchQuery.created_at >= since)
+    )
+    if user_id is not None:
+        q = q.filter(SearchQuery.user_id == user_id)
+
+    rows = (
+        q.group_by(SearchQuery.normalized_query)
+        .order_by(func.count(SearchQuery.id).desc())
+        .limit(limit)
+        .all()
+    )
+
+    out: List[TopQueryWithCategoryOut] = []
+    for r in rows:
+        guess = _best_plus_guess(db=db, query=r.query, days=days, user_id=user_id)
+        out.append(
+            {
+                "query": r.query,
+                "count": int(r.count),
+                "category": guess,
+            }
+        )
+    return out
 
 @router.get("/top-search-queries", response_model=List[TopQueryItem])
 def top_search_queries(
