@@ -238,6 +238,7 @@ def query_to_category(
 
     return [{"category_id": r.category_id, "count": int(r.count)} for r in rows]
 
+
 @router.get(
     "/query-to-category/best-plus",
     response_model=QueryCategoryBest,
