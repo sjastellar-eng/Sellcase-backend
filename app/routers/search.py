@@ -227,10 +227,6 @@ def ai_hints(norm: str, items, limit: int):
 
 # ==== А ДАЛЬШЕ УЖЕ router = APIRouter(...) ====
 
-router = APIRouter(
-    prefix="/search",
-    tags=["search"],
-)
 
 router = APIRouter(
     prefix="/search",
