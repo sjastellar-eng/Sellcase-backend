@@ -1622,6 +1622,26 @@ def auto_keywords(
 
     return AutoKeywordsOut(updated_categories=updated)
 
+@router.post("")
+def search(query: str, db: Session = Depends(get_db)):
+    normalized = query.strip().lower()
+
+    sq = models.SearchQuery(
+        query=query,
+        normalized_query=normalized,
+        results_count=0
+    )
+
+    db.add(sq)
+    db.commit()
+    db.refresh(sq)
+
+    return {
+        "query": query,
+        "normalized": normalized,
+        "id": sq.id
+    }
+
 @router.get("/suggestions")
 def get_suggestions(
     query: str,
