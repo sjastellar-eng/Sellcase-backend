@@ -1622,7 +1622,7 @@ def auto_keywords(
 
     return AutoKeywordsOut(updated_categories=updated)
 
-@router.post("")
+@router.post("/")
 def search(query: str, db: Session = Depends(get_db)):
     normalized = query.strip().lower()
 
