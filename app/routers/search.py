@@ -1582,14 +1582,17 @@ def auto_keywords(
 
     return AutoKeywordsOut(updated_categories=updated)
 
-@router.post("/")
-def search(query: str, db: Session = Depends(get_db)):
+@router.post("", response_model=dict)
+def search(payload: SearchIn, db: Session = Depends(get_db)):
+    query = payload.query
     normalized = query.strip().lower()
 
     sq = models.SearchQuery(
         query=query,
         normalized_query=normalized,
-        results_count=0
+        results_count=0,
+        popularity=0,
+        source="api",
     )
 
     db.add(sq)
