@@ -82,10 +82,6 @@ def extract_model_from_query(normalized_query: str, brand: str) -> Optional[str]
         return None
 
     q = normalized_query.strip().lower()
-
-    category = detect_category_from_query(normalized)
-    brand, brand_score = extract_brand(normalized)
-    
     tokens = [t for t in q.split() if t and t not in STOP_TOKENS]
 
     if not tokens:
@@ -1591,40 +1587,62 @@ def search(
     query: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
 ):
+
     normalized = query.strip().lower()
 
-    # TODO: здесь должен быть реальный поиск по OLX/источнику
-    # results = ...
-    # results_count = len(results)
-    results_count = 0  # временно, пока не подключил реальный парсер/поиск
+# =========================
+# 1️⃣ РЕАЛЬНЫЙ ПОИСК
+# =========================
 
-    # Ищем существующую запись по нормализованному запросу
-    sq = (
-        db.query(SearchQuery)
-        .filter(SearchQuery.normalized_query == normalized)
-        .order_by(SearchQuery.created_at.desc())
-        .first()
+category = detect_category_from_query(normalized)
+brand, brand_score = extract_brand(normalized)
+
+q = db.query(OlxAd)
+
+if category:
+    q = q.filter(OlxAd.category_id == category.id)
+
+if brand:
+    q = q.filter(OlxAd.title.ilike(f"%{brand}%"))
+
+results = q.limit(50).all()
+results_count = q.count()
+
+# =========================
+# 2️⃣ АНАЛИТИКА ПОИСКА
+# =========================
+
+sq = (
+    db.query(SearchQuery)
+    .filter(SearchQuery.normalized_query == normalized)
+    .order_by(SearchQuery.created_at.desc())
+    .first()
+)
+
+if sq:
+    sq.popularity = (sq.popularity or 0) + 1
+    sq.results_count = results_count
+    sq.source = "api"
+    sq.query = query
+else:
+    sq = SearchQuery(
+        query=query,
+        normalized_query=normalized,
+        results_count=results_count,
+        popularity=1,
+        source="api",
     )
+    db.add(sq)
 
-    if sq:
-        sq.popularity = (sq.popularity or 0) + 1
-        sq.results_count = results_count
-        sq.source = "api"
-        sq.query = query  # чтобы сохранить оригинальный ввод (с регистром)
-    else:
-        sq = SearchQuery(
-            query=query,
-            normalized_query=normalized,
-            results_count=results_count,
-            popularity=1,
-            source="api",
-        )
-        db.add(sq)
+db.commit()
 
-    db.commit()
-    db.refresh(sq)
+return {
+    "query": query,
+    "normalized": normalized,
+    "results_count": results_count,
+    "items": results,
+}
 
-    return {"query": query, "normalized": normalized, "id": sq.id, "results_count": sq.results_count, "popularity": sq.popularity}
 
 @router.get("/suggestions")
 def get_suggestions(
