@@ -9,11 +9,11 @@ import re
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Category, SearchQuery
+from app.models import Category, SearchQuery, OlxAd
 
 
 def normalize_query_advanced(q: str) -> str:
