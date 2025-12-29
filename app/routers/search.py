@@ -82,6 +82,10 @@ def extract_model_from_query(normalized_query: str, brand: str) -> Optional[str]
         return None
 
     q = normalized_query.strip().lower()
+
+    category = detect_category_from_query(normalized)
+    brand, brand_score = extract_brand(normalized)
+    
     tokens = [t for t in q.split() if t and t not in STOP_TOKENS]
 
     if not tokens:
