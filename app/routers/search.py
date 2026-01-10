@@ -15,6 +15,46 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Category, SearchQuery, OlxAd
 
+# --- helpers: category + brand extraction ---
+
+COMMON_BRANDS = {
+    "apple", "samsung", "xiaomi", "huawei", "lenovo", "asus", "acer", "dell",
+    "hp", "msi", "sony", "lg", "nokia", "oneplus", "google", "motorola",
+}
+
+def detect_category_from_query(db: Session, normalized: str) -> Optional[Category]:
+    q = (normalized or "").strip().lower()
+    if not q:
+        return None
+
+    # Пытаемся найти категорию по name/slug/keywords (keywords предполагается строкой с ключевиками)
+    # Работает даже если keywords=None
+    return (
+        db.query(Category)
+        .filter(
+            or_(
+                func.lower(Category.slug) == q,
+                func.lower(Category.name) == q,
+                func.lower(Category.name).ilike(f"%{q}%"),
+                func.coalesce(func.lower(Category.keywords), "").ilike(f"%{q}%"),
+            )
+        )
+        .order_by(Category.id.asc())
+        .first()
+    )
+
+def extract_brand(normalized: str) -> Tuple[Optional[str], int]:
+    q = (normalized or "").strip().lower()
+    if not q:
+        return None, 0
+
+    tokens = re.findall(r"[a-z0-9]+", q)
+    # ищем в токенах известные бренды
+    for t in tokens:
+        if t in COMMON_BRANDS:
+            return t, 100
+
+    return None, 0
 
 def normalize_query_advanced(q: str) -> str:
     q = q.strip().lower()
@@ -1590,7 +1630,7 @@ def search(
     normalized = query.strip().lower()
 
     # 1) Реальный поиск (вариант 2: категории + бренды)
-    category = detect_category_from_query(normalized)   # должна быть функция в файле
+    category = detect_category_from_query(db, normalized)   # должна быть функция в файле
     brand, brand_score = extract_brand(normalized)      # должна быть функция в файле
 
     q = db.query(OlxAd)  # OlxAd должен быть импортирован/виден в файле
