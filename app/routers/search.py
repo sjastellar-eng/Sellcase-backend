@@ -1642,7 +1642,6 @@ def search(
         "query": query,
         "normalized": normalized,
         "results_count": results_count,
-        "items": items,
         }
 
 
