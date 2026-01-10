@@ -1636,7 +1636,7 @@ def search(
     q = db.query(OlxAd)  # OlxAd должен быть импортирован/виден в файле
 
     if category:
-        q = q.filter(OlxAd.category_id == category.id)
+    q = q.filter(OlxAd.category.ilike(f"%{category.name}%"))
 
     if brand:
         q = q.filter(OlxAd.title.ilike(f"%{brand}%"))
