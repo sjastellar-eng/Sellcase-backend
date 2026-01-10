@@ -1589,11 +1589,11 @@ def search(
 ):
     normalized = query.strip().lower()
 
-    # 1. Реальный поиск
-    category = detect_category_from_query(normalized)
-    brand, brand_score = extract_brand(normalized)
+    # 1) Реальный поиск (вариант 2: категории + бренды)
+    category = detect_category_from_query(normalized)   # должна быть функция в файле
+    brand, brand_score = extract_brand(normalized)      # должна быть функция в файле
 
-    q = db.query(OlxAd)
+    q = db.query(OlxAd)  # OlxAd должен быть импортирован/виден в файле
 
     if category:
         q = q.filter(OlxAd.category_id == category.id)
@@ -1601,19 +1601,11 @@ def search(
     if brand:
         q = q.filter(OlxAd.title.ilike(f"%{brand}%"))
 
+    # Важно: count ДО limit
     results_count = q.count()
     results = q.limit(50).all()
 
-    items = [
-        {
-            "id": r.id,
-            "title": r.title,
-            "category_id": r.category_id,
-        }
-        for r in results
-    ]
-
-    # 2. Аналитика
+    # 2) Аналитика поиска
     sq = (
         db.query(SearchQuery)
         .filter(SearchQuery.normalized_query == normalized)
@@ -1637,13 +1629,15 @@ def search(
         db.add(sq)
 
     db.commit()
+    db.refresh(sq)
 
     return {
         "query": query,
         "normalized": normalized,
         "results_count": results_count,
+        "popularity": sq.popularity,
+        "items": results,
         }
-
 
 @router.get("/suggestions")
 def get_suggestions(
