@@ -1679,6 +1679,36 @@ def search(
         "items": results,
         }
 
+@router.get("/suggest", response_model=dict)
+def suggest(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(8, ge=1, le=20),
+    db: Session = Depends(get_db),
+):
+    nq = q.strip().lower()
+
+    rows = (
+        db.query(SearchQuery)
+        .filter(SearchQuery.normalized_query.ilike(f"{nq}%"))
+        .order_by(desc(SearchQuery.popularity), desc(SearchQuery.created_at))
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "q": q,
+        "normalized": nq,
+        "items": [
+            {
+                "query": r.query,                # оригинальный ввод (красиво показывать)
+                "normalized_query": r.normalized_query,
+                "popularity": r.popularity or 0,
+                "results_count": r.results_count or 0,
+            }
+            for r in rows
+        ],
+    }
+
 @router.get("/suggestions")
 def get_suggestions(
     query: str,
