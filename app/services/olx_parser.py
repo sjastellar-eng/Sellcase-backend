@@ -276,14 +276,26 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
                 break
 
             for card in cards:
-                # Заголовок
-                title_tag = card.select_one(
-                    '[data-cy="ad-title"], [data-testid="ad-title"]'
-                )
-                title = title_tag.get_text(" ", strip=True) if title_tag else ""
-
-                # URL и external_id
+                # --- Заголовок / ссылка ---
                 link_tag = card.select_one("a[href]")
+                title = ""
+
+                # 1) Пытаемся через атрибуты
+                title_tag = card.select_one('[data-cy="ad-title"], [data-testid="ad-title"]')
+                if title_tag:
+                    title = title_tag.get_text(" ", strip=True)
+
+                # 2) Фолбэк: h6/h4/h3
+                if not title:
+                    h = card.select_one("h6, h4, h3")
+                    if h:
+                        title = h.get_text(" ", strip=True)
+
+                # 3) Фолбэк: текст ссылки
+                if not title and link_tag:
+                    title = link_tag.get_text(" ", strip=True)
+
+                # --- URL и external_id ---
                 url = ""
                 external_id = ""
 
@@ -296,13 +308,13 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
                     else:
                         url = "https://www.olx.ua/" + href.lstrip("/")
 
-                    # Пытаемся вытащить ID объявления
                     m = re.search(r"ID([0-9A-Za-z]+)\.html", href)
                     if not m:
                         m = re.search(r"(\d+)", href)
                     if m:
                         external_id = m.group(1)
 
+    # дальше уже твоя цена/локация и append результата
                 # Цена
                 price_tag = card.select_one(
                     '[data-testid="ad-price"], [data-cy="ad-price"]'
