@@ -101,15 +101,71 @@ def normalize_olx_url(raw_url: str) -> str:
 
 
 def _empty_stats(reason: str) -> Dict[str, int]:
-    # На будущее: reason будет видно в логах
     print(f"[OLX] return empty stats, reason={reason}")
     return {
         "items_count": 0,
         "avg_price": 0,
         "min_price": 0,
         "max_price": 0,
+        "median_price": 0,
+        "p25_price": 0,
+        "p75_price": 0,
     }
 
+def _percentile(sorted_vals: List[int], p: float) -> int:
+    """
+    p: 0..1 (например 0.25, 0.5, 0.75)
+    sorted_vals: уже отсортированный список
+    """
+    if not sorted_vals:
+        return 0
+    if len(sorted_vals) == 1:
+        return sorted_vals[0]
+
+    # линейная интерполяция
+    k = (len(sorted_vals) - 1) * p
+    f = int(k)
+    c = min(f + 1, len(sorted_vals) - 1)
+    if f == c:
+        return sorted_vals[f]
+    d0 = sorted_vals[f] * (c - k)
+    d1 = sorted_vals[c] * (k - f)
+    return int(round(d0 + d1))
+
+def _calc_price_stats(prices: List[int]) -> Dict[str, int]:
+    """
+    Возвращает расширенную статистику.
+    """
+    if not prices:
+        return {
+            "items_count": 0,
+            "min_price": 0,
+            "max_price": 0,
+            "avg_price": 0,
+            "median_price": 0,
+            "p25_price": 0,
+            "p75_price": 0,
+        }
+
+    s = sorted(prices)
+    items_count = len(s)
+    min_price = s[0]
+    max_price = s[-1]
+    avg_price = int(round(sum(s) / items_count))
+
+    p25 = _percentile(s, 0.25)
+    median = _percentile(s, 0.50)
+    p75 = _percentile(s, 0.75)
+
+    return {
+        "items_count": items_count,
+        "min_price": min_price,
+        "max_price": max_price,
+        "avg_price": avg_price,
+        "median_price": median,
+        "p25_price": p25,
+        "p75_price": p75,
+    }
 
 def extract_price(text: str) -> Optional[int]:
     """
@@ -192,18 +248,7 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
         print("[OLX] No prices parsed from cards")
         return _empty_stats("no-prices")
 
-    items_count = len(prices)
-    min_price = min(prices)
-    max_price = max(prices)
-    avg_price = round(sum(prices) / items_count)
-
-    return {
-        "items_count": items_count,
-        "avg_price": avg_price,
-        "min_price": min_price,
-        "max_price": max_price,
-    }
-
+    return _calc_price_stats(prices)
 
 # ===== ГЛУБОКИЙ ПАРСЕР ОБЪЯВЛЕНИЙ (для /debug/parse и будущих фич) =====
 
