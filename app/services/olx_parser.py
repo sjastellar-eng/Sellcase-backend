@@ -39,55 +39,65 @@ def normalize_olx_url(raw_url: str) -> str:
     Принимает ЛЮБУЮ olx-ссылку (desktop/mobile) и возвращает
     нормализованный mobile-URL вида:
     https://m.olx.ua/uk/...
+
+    Правила:
+    - http -> https
+    - домен -> m.olx.ua
+    - /d/uk/... -> /uk/...
+    - чистим query: убираем page и utm_*
     """
     if not raw_url:
         return raw_url
 
     url = raw_url.strip()
 
-    # 1. Всегда https
+    # 1) Всегда https
     if url.startswith("http://"):
         url = "https://" + url[len("http://") :]
 
     parsed = urlparse(url)
+    netloc = (parsed.netloc or "").lower()
 
-    # 2. Приводим домен к m.olx.ua
-    netloc = parsed.netloc.lower()
-
+    # если вообще не olx — вернём как есть
     if "olx.ua" not in netloc:
-        # вообще не OLX → возвращаем как есть (на всякий случай)
         return url
 
-    # desktop варианты → в mobile
+    # 2) Домены -> m.olx.ua
     if netloc in ("olx.ua", "www.olx.ua"):
         netloc = "m.olx.ua"
     elif netloc.endswith(".olx.ua"):
-        # m.olx.ua, beta.olx.ua и т.п. → оставим как есть
+        # beta.olx.ua, m.olx.ua и т.п.
+        netloc = "m.olx.ua"
+    else:
         netloc = "m.olx.ua"
 
-    # 3. Нормализуем path:
-    # /d/uk/... → /uk/...
-    path = parsed.path
-
+    # 3) Нормализуем path
+    path = parsed.path or "/"
     if path.startswith("/d/uk/"):
-        path = path[len("/d") :]  # режем только /d → /uk/...
+        path = path[len("/d") :]  # /d/uk/... -> /uk/...
 
-    # Иногда desktop даёт /uk/... – это тоже ок
-    # Иногда mobile даёт уже правильный /uk/... – оставляем
+    # 3.5) Чистим query: выкидываем page и utm_*
+    q = []
+    for k, v in parse_qsl(parsed.query or "", keep_blank_values=True):
+        lk = k.lower()
+        if lk == "page":
+            continue
+        if lk.startswith("utm_"):
+            continue
+        q.append((k, v))
+    clean_query = urlencode(q)
 
-    # 4. Собираем обратно
-    normalized = urlunparse(
+    # 4) Собираем обратно
+    return urlunparse(
         (
-            "https",        # schema
-            netloc,         # m.olx.ua
-            path,           # /uk/...
+            "https",
+            netloc,
+            path,
             parsed.params,
-            parsed.query,
+            clean_query,
             parsed.fragment,
         )
     )
-
-    return normalized
 
 
 def _empty_stats(reason: str) -> Dict[str, int]:
