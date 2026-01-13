@@ -206,6 +206,9 @@ async def refresh_project(
         min_price=stats["min_price"],
         max_price=stats["max_price"],
         avg_price=stats["avg_price"],
+        median_price=stats["median_price"],
+        p25_price=stats["p25_price"],
+        p75_price=stats["p75_price"],
     )
 
     db.add(snapshot)
@@ -257,7 +260,10 @@ async def refresh_all_projects(
             min_price=stats["min_price"],
             max_price=stats["max_price"],
             avg_price=stats["avg_price"],
-        )
+            median_price=stats["median_price"],
+            p25_price=stats["p25_price"],
+            p75_price=stats["p75_price"],
+       )
         db.add(snapshot)
         db.flush()  # чтобы получить snapshot.id без отдельного commit
 
