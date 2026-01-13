@@ -61,6 +61,24 @@ class OlxProjectUpdate(BaseModel):
 
 # --- Снапшоты проекта (для списка снапшотов) ---
 
+class OlxSnapshotOut(BaseModel):
+    id: int
+    project_id: int
+    taken_at: datetime
+    items_count: int
+    avg_price: Optional[float] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+
+    median_price: Optional[float] = None
+    p25_price: Optional[float] = None
+    p75_price: Optional[float] = None
+
+    class Config:
+        # для Pydantic v2
+        from_attributes = True
+        # для совместимости
+        orm_mode = True
 
 class OlxAdOut(BaseModel):
     external_id: str
@@ -106,30 +124,7 @@ class OlxProjectOut(OlxProjectBase):
     class Config:
         orm_mode = True
 
-
-class OlxSnapshotOut(BaseModel):
-    id: int
-    project_id: int
-    taken_at: datetime
-    items_count: int
-    avg_price: Optional[float] = None
-    min_price: Optional[float] = None
-    max_price: Optional[float] = None
-
-    median_price: Optional[float] = None
-    p25_price: Optional[float] = None
-    p75_price: Optional[float] = None
-
-    class Config:
-        # для Pydantic v2
-        from_attributes = True
-        # для совместимости
-        orm_mode = True
-    class Config:
-        # для Pydantic v2
-        from_attributes = True
-        # если хочешь, можно оставить и это (для совместимости)
-        orm_mode = True
+    
 from typing import List, Optional
 from pydantic import BaseModel, HttpUrl
 
