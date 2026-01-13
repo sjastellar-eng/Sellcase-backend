@@ -72,6 +72,9 @@ class OlxSnapshot(Base):
     avg_price = Column(Float, nullable=True)
     min_price = Column(Float, nullable=True)
     max_price = Column(Float, nullable=True)
+    median_price = Column(Float, nullable=True)
+    p25_price = Column(Float, nullable=True)
+    p75_price = Column(Float, nullable=True)
 
     # 🔗 обратная связь к проекту
     project = relationship("OlxProject", back_populates="snapshots")
