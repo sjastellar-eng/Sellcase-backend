@@ -311,14 +311,14 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
     ) as client:
         for page in range(1, max_pages + 1):
             page_url = _build_page_url(search_url, page)
-            print(f"[OLX_ADS_HTML] fetch page={page} url={page_url}")
-
+            logger.info("[OLX_ADS_HTML] fetch page=%s url=%s", page, page_url)
+            
             # --- грузим HTML ---
             try:
                 resp = await client.get(page_url)
                 resp.raise_for_status()
             except httpx.HTTPError as e:
-                print(f"[OLX_ADS_HTML] http error on page={page}: {e}")
+                logger.warning("[OLX_ADS_HTML] http error on page=%s err=%s", page, e)
                 break
 
             html = resp.text
@@ -330,8 +330,8 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
                 cards = soup.select('div[data-testid="l-card"]')
 
             if not cards:
-                print(f"[OLX_ADS_HTML] no cards on page={page}")
-                break
+               logger.info("[OLX_ADS_HTML] no cards on page=%s", page)
+               break
 
             for card in cards:
                 # --- Заголовок / ссылка ---
