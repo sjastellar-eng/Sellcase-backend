@@ -135,6 +135,21 @@ def _percentile(sorted_vals: List[int], p: float) -> int:
     d1 = sorted_vals[c] * (k - f)
     return int(round(d0 + d1))
 
+def _filter_outliers_iqr(prices: List[int]) -> List[int]:
+    if len(prices) < 8:  # на малом количестве не режем
+        return prices
+
+    s = sorted(prices)
+    p25 = _percentile(s, 0.25)
+    p75 = _percentile(s, 0.75)
+    iqr = p75 - p25
+    if iqr <= 0:
+        return prices
+
+    lo = int(p25 - 1.5 * iqr)
+    hi = int(p75 + 1.5 * iqr)
+    return [x for x in prices if lo <= x <= hi]
+    
 def _calc_price_stats(prices: List[int]) -> Dict[str, int]:
     """
     Возвращает расширенную статистику.
@@ -251,6 +266,7 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
         print("[OLX] No prices parsed from cards")
         return _empty_stats("no-prices")
 
+    prices = _filter_outliers_iqr(prices)
     return _calc_price_stats(prices)
 
 # ===== ГЛУБОКИЙ ПАРСЕР ОБЪЯВЛЕНИЙ (для /debug/parse и будущих фич) =====
