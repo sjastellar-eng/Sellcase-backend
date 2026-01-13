@@ -10,6 +10,9 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 import html as html_lib
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 HEADERS = {
     "User-Agent": (
