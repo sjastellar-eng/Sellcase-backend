@@ -61,17 +61,6 @@ class OlxProjectUpdate(BaseModel):
 
 # --- Снапшоты проекта (для списка снапшотов) ---
 
-class OlxSnapshotOut(BaseModel):
-    id: int
-    project_id: int
-    items_count: int
-    min_price: int
-    max_price: int
-    avg_price: float   # ← было int
-    taken_at: datetime
-
-    class Config:
-        orm_mode = True
 
 class OlxAdOut(BaseModel):
     external_id: str
@@ -127,6 +116,15 @@ class OlxSnapshotOut(BaseModel):
     min_price: Optional[float] = None
     max_price: Optional[float] = None
 
+    median_price: Optional[float] = None
+    p25_price: Optional[float] = None
+    p75_price: Optional[float] = None
+
+    class Config:
+        # для Pydantic v2
+        from_attributes = True
+        # для совместимости
+        orm_mode = True
     class Config:
         # для Pydantic v2
         from_attributes = True
