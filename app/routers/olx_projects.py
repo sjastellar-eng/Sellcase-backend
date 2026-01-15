@@ -436,3 +436,69 @@ async def download_project_ads_csv(
             "Content-Disposition": f'attachment; filename="{filename}"'
         },
     )
+
+@router.get(
+    "/{project_id}/market",
+    response_model=schemas.OlxMarketOverviewOut,
+)
+def get_project_market_overview(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # 1) Проверяем, что проект принадлежит юзеру
+    project = (
+        db.query(models.OlxProject)
+        .filter(
+            models.OlxProject.id == project_id,
+            models.OlxProject.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # 2) Берём 2 последних снапшота
+    snaps = (
+        db.query(models.OlxSnapshot)
+        .filter(models.OlxSnapshot.project_id == project_id)
+        .order_by(models.OlxSnapshot.taken_at.desc())
+        .limit(2)
+        .all()
+    )
+
+    last = snaps[0] if len(snaps) >= 1 else None
+    prev = snaps[1] if len(snaps) >= 2 else None
+
+    # 3) Считаем дельты
+    median_abs = None
+    median_pct = None
+    items_abs = None
+
+    if last and prev:
+        if last.median_price is not None and prev.median_price is not None:
+            median_abs = float(last.median_price) - float(prev.median_price)
+            if prev.median_price != 0:
+                median_pct = round((median_abs / float(prev.median_price)) * 100, 2)
+
+        if last.items_count is not None and prev.items_count is not None:
+            items_abs = int(last.items_count) - int(prev.items_count)
+
+    # 4) Коридор цен (p25–p75) из последнего снапшота
+    band_p25 = float(last.p25_price) if (last and last.p25_price is not None) else None
+    band_p75 = float(last.p75_price) if (last and last.p75_price is not None) else None
+
+    return schemas.OlxMarketOverviewOut(
+        project_id=project_id,
+        last=last,
+        prev=prev,
+        delta=schemas.OlxMarketDeltaOut(
+            median_abs=median_abs,
+            median_pct=median_pct,
+            items_abs=items_abs,
+        ),
+        band=schemas.OlxMarketBandOut(
+            p25=band_p25,
+            p75=band_p75,
+        ),
+                                   )
