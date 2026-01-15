@@ -440,7 +440,7 @@ async def download_project_ads_csv(
 
 @router.get(
     "/{project_id}/market",
-    response_model=schemas.OlxMarketOverviewOut,
+    response_model=OlxMarketOverviewOut,
 )
 def get_project_market_overview(
     project_id: int,
