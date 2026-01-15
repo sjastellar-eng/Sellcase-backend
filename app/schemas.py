@@ -175,3 +175,23 @@ class OlxReportWithItemsOut(OlxReportOut):
 class OlxReportListOut(BaseModel):
     total: int
     items: List[OlxReportOut]
+
+class OlxMarketDeltaOut(BaseModel):
+    median_abs: Optional[float] = None
+    median_pct: Optional[float] = None
+    items_abs: Optional[int] = None
+
+class OlxMarketBandOut(BaseModel):
+    p25: Optional[float] = None
+    p75: Optional[float] = None
+
+class OlxMarketOverviewOut(BaseModel):
+    project_id: int
+    last: Optional["OlxSnapshotOut"] = None
+    prev: Optional["OlxSnapshotOut"] = None
+    delta: OlxMarketDeltaOut
+    band: OlxMarketBandOut
+
+    class Config:
+        from_attributes = True
+
