@@ -7,7 +7,8 @@ from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app import models, schemas
+from app import models
+from app.schemas import Token, UserCreate, UserLogin, UserOut
 
 
 # === Настройки JWT ===
@@ -15,7 +16,7 @@ SECRET_KEY = "CHANGE_ME_TO_RANDOM_SECRET"  # позже вынесем в .env
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 дней
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 router = APIRouter(
@@ -74,9 +75,9 @@ async def get_current_user(
 
 # === Эндпоинты ===
 
-@router.post("/register", response_model=schemas.UserOut)
+@router.post("/register", response_model=UserOut)
 def register_user(
-    user_in: schemas.UserCreate,
+    user_in: UserCreate,
     db: Session = Depends(get_db),
 ):
     # Проверяем, что такого email ещё нет
@@ -98,7 +99,7 @@ def register_user(
     return user
 
 
-@router.post("/login", response_model=schemas.Token)
+@router.post("/login", response_model=Token)
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
@@ -114,6 +115,6 @@ def login(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/me", response_model=schemas.UserOut)
+@router.get("/me", response_model=UserOut)
 def read_me(current_user: models.User = Depends(get_current_user)):
     return current_user
