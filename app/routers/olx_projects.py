@@ -505,3 +505,48 @@ def get_project_market_overview(
             p75=band_p75,
         ),
                                    )
+@router.get(
+    "/{project_id}/market/history",
+    response_model=List[OlxMarketPointOut],
+)
+def get_project_market_history(
+    project_id: int,
+    limit: int = 30,  # сколько последних точек вернуть
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # 1) Проверяем, что проект принадлежит текущему пользователю
+    project = (
+        db.query(models.OlxProject)
+        .filter(
+            models.OlxProject.id == project_id,
+            models.OlxProject.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # 2) Берём последние N снапшотов (по дате), потом разворачиваем в хронологию
+    snapshots = (
+        db.query(models.OlxSnapshot)
+        .filter(models.OlxSnapshot.project_id == project_id)
+        .order_by(models.OlxSnapshot.taken_at.desc())
+        .limit(limit)
+        .all()
+    )
+    snapshots = list(reversed(snapshots))
+
+    # 3) Маппим на выдачу
+    points: List[OlxMarketPointOut] = []
+    for s in snapshots:
+        points.append(
+            OlxMarketPointOut(
+                taken_at=s.taken_at,
+                items_count=s.items_count,
+                median_price=s.median_price,
+                p25_price=s.p25_price,
+                p75_price=s.p75_price,
+            )
+        )
+    return points
