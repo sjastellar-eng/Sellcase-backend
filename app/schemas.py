@@ -195,3 +195,12 @@ class OlxMarketOverviewOut(BaseModel):
     class Config:
         from_attributes = True
 
+class OlxMarketPointOut(BaseModel):
+    taken_at: datetime
+    items_count: int
+    median_price: Optional[float] = None
+    p25_price: Optional[float] = None
+    p75_price: Optional[float] = None
+
+    class Config:
+        from_attributes = True
