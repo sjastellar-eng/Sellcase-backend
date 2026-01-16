@@ -75,7 +75,7 @@ async def get_current_user(
 
 # === Эндпоинты ===
 
-@router.post("/register", response_model=UserOut)
+@router.post("/register", response_model= UserOut)
 def register_user(
     user_in: UserCreate,
     db: Session = Depends(get_db),
@@ -99,7 +99,7 @@ def register_user(
     return user
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model= Token)
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
@@ -115,6 +115,6 @@ def login(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/me", response_model=UserOut)
+@router.get("/me", response_model= UserOut)
 def read_me(current_user: models.User = Depends(get_current_user)):
     return current_user
