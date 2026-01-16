@@ -20,7 +20,9 @@ from app.schemas import (
     OlxProjectUpdate,
     OlxProjectOverview,
     OlxAdOut,   
-    OlxMarketOverviewOut,  # ← добавляем эту строку
+    OlxMarketOverviewOut,
+    OlxMarketDeltaOut,
+    OlxMarketBandOut, # ← добавляем эту строку
 )
 from app.services.olx_parser import fetch_olx_data, fetch_olx_ads
 
@@ -489,16 +491,16 @@ def get_project_market_overview(
     band_p25 = float(last.p25_price) if (last and last.p25_price is not None) else None
     band_p75 = float(last.p75_price) if (last and last.p75_price is not None) else None
 
-    return schemas.OlxMarketOverviewOut(
+    return OlxMarketOverviewOut(
         project_id=project_id,
         last=last,
         prev=prev,
-        delta=schemas.OlxMarketDeltaOut(
+        delta= OlxMarketDeltaOut(
             median_abs=median_abs,
             median_pct=median_pct,
             items_abs=items_abs,
         ),
-        band=schemas.OlxMarketBandOut(
+        band= OlxMarketBandOut(
             p25=band_p25,
             p75=band_p75,
         ),
