@@ -533,9 +533,6 @@ def get_project_market_history(
     snapshots = (
         db.query(models.OlxSnapshot)
         .filter(models.OlxSnapshot.project_id == project_id)
-        .filter(models.OlxSnapshot.median_price.isnot(None))
-        .filter(models.OlxSnapshot.p25_price.isnot(None))
-        .filter(models.OlxSnapshot.p75_price.isnot(None))
         .order_by(models.OlxSnapshot.taken_at.desc(), models.OlxSnapshot.id.desc())
         .offset(offset)
         .limit(limit)
