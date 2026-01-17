@@ -22,7 +22,8 @@ from app.schemas import (
     OlxAdOut,   
     OlxMarketOverviewOut,
     OlxMarketDeltaOut,
-    OlxMarketBandOut, # ← добавляем эту строку
+    OlxMarketBandOut,
+    OlxMarketPointOut, # ← добавляем эту строку
 )
 from app.services.olx_parser import fetch_olx_data, fetch_olx_ads
 
