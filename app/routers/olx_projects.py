@@ -512,7 +512,8 @@ def get_project_market_overview(
 )
 def get_project_market_history(
     project_id: int,
-    limit: int = 30,  # сколько последних точек вернуть
+    limit: int = 30, 
+    offset: int = 0, # сколько последних точек вернуть
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -535,7 +536,8 @@ def get_project_market_history(
         .filter(models.OlxSnapshot.median_price.isnot(None))
         .filter(models.OlxSnapshot.p25_price.isnot(None))
         .filter(models.OlxSnapshot.p75_price.isnot(None))
-        .order_by(models.OlxSnapshot.taken_at.desc())
+        .order_by(models.OlxSnapshot.taken_at.desc(), models.OlxSnapshot.id.desc())
+        .offset(offset)
         .limit(limit)
         .all()
     )
