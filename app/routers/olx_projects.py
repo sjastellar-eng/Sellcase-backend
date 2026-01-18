@@ -537,10 +537,10 @@ def get_project_market_history(
         )
 
     if only_valid:
-    q = (
-        q.filter(models.OlxSnapshot.median_price.isnot(None))
-         .filter(models.OlxSnapshot.p25_price.isnot(None))
-         .filter(models.OlxSnapshot.p75_price.isnot(None))
+        q = (
+            q.filter(models.OlxSnapshot.median_price.isnot(None))
+            .filter(models.OlxSnapshot.p25_price.isnot(None))
+            .filter(models.OlxSnapshot.p75_price.isnot(None))
         )
 
     snapshots = (
