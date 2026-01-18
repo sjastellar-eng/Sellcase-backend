@@ -204,3 +204,9 @@ class OlxMarketPointOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class OlxMarketHistoryOut(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: List["OlxMarketPointOut"]
