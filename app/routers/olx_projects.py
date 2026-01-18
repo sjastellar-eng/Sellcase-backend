@@ -514,6 +514,7 @@ def get_project_market_history(
     project_id: int,
     limit: int = 30, 
     offset: int = 0, # сколько последних точек вернуть
+    only_valid: bool = Query(True),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -530,14 +531,25 @@ def get_project_market_history(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # 2) Берём последние N снапшотов (по дате), потом разворачиваем в хронологию
-    snapshots = (
+    q = (
         db.query(models.OlxSnapshot)
         .filter(models.OlxSnapshot.project_id == project_id)
-        .order_by(models.OlxSnapshot.taken_at.desc(), models.OlxSnapshot.id.desc())
+        )
+
+    if only_valid:
+    q = (
+        q.filter(models.OlxSnapshot.median_price.isnot(None))
+         .filter(models.OlxSnapshot.p25_price.isnot(None))
+         .filter(models.OlxSnapshot.p75_price.isnot(None))
+        )
+
+    snapshots = (
+        q.order_by(models.OlxSnapshot.taken_at.desc(), models.OlxSnapshot.id.desc())
         .offset(offset)
         .limit(limit)
         .all()
-    )
+        )
+
     snapshots = list(reversed(snapshots))
 
     # 3) Маппим на выдачу
