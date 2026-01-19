@@ -508,7 +508,7 @@ def get_project_market_overview(
                                    )
 @router.get(
     "/{project_id}/market/history",
-    response_model=List[OlxMarketPointOut],
+    response_model=schemas.OlxMarketHistoryPageOut,
 )
 def get_project_market_history(
     project_id: int,
@@ -543,6 +543,8 @@ def get_project_market_history(
             .filter(models.OlxSnapshot.p75_price.isnot(None))
         )
 
+    total = q.count()
+
     snapshots = (
         q.order_by(models.OlxSnapshot.taken_at.desc(), models.OlxSnapshot.id.desc())
         .offset(offset)
@@ -564,4 +566,9 @@ def get_project_market_history(
                 p75_price=s.p75_price,
             )
         )
-    return points
+    return schemas.OlxMarketHistoryPageOut(
+        items=points,
+        limit=limit,
+        offset=offset,
+        total=total,
+    )
