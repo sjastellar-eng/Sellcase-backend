@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.routers.auth import get_current_user
 from app import models
+from app import schemas
 from app.db import get_db
 from app.models import OlxProject, OlxSnapshot
 from app.schemas import (
