@@ -566,9 +566,10 @@ def get_project_market_history(
                 p75_price=s.p75_price,
             )
         )
-    return schemas.OlxMarketHistoryPageOut(
-        items=points,
-        limit=limit,
-        offset=offset,
-        total=total,
-    )
+    return {
+        "marker": "market_history_v2",
+        "items": points,
+        "limit": limit,
+        "offset": offset,
+        "total": total,
+    }
