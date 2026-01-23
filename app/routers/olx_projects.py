@@ -25,7 +25,7 @@ from app.schemas import (
     OlxMarketDeltaOut,
     OlxMarketBandOut,
     OlxMarketPointOut,
-    OlxMarketHistoryPageOut, # ← добавляем эту строку
+    OlxMarketHistoryOut, # ← добавляем эту строку
 )
 from app.services.olx_parser import fetch_olx_data, fetch_olx_ads
 
@@ -510,7 +510,7 @@ def get_project_market_overview(
                                    )
 @router.get(
     "/{project_id}/market/history",
-    response_model=OlxMarketHistoryPageOut,
+    response_model=OlxMarketHistoryOut,
 )
 def get_project_market_history(
     project_id: int,
