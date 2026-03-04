@@ -208,9 +208,10 @@ async def fetch_olx_data(search_url: str) -> Dict[str, int]:
     soup = BeautifulSoup(html, "html.parser")
 
     # Ищем карточки объявлений
-    cards = soup.select('div[data-cy="l-card"]')
+    cards = soup.select("article")
+
     if not cards:
-        cards = soup.select('div[data-testid="l-card"]')
+        cards = soup.select('[data-testid="listing-grid"] article')
 
     if not cards:
         print("[OLX] No cards found on page")
@@ -317,7 +318,7 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
                 title = ""
 
                 # 1) Пытаемся через атрибуты
-                title_tag = card.select_one('[data-cy="ad-title"], [data-testid="ad-title"]')
+                title_tag = card.select_one("h4, h3")
                 if title_tag:
                     title = title_tag.get_text(" ", strip=True)
 
@@ -352,9 +353,8 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 3) -> List[Dict]:
 
     # дальше уже твоя цена/локация и append результата
                 # Цена
-                price_tag = card.select_one(
-                    '[data-testid="ad-price"], [data-cy="ad-price"]'
-                )
+                price_tag = card.select_one("p")
+                
                 if price_tag:
                     price_text = price_tag.get_text(" ", strip=True)
                 else:
