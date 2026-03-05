@@ -99,3 +99,28 @@ async def fetch_olx_ads(search_url: str, max_pages: int = 1) -> List[Dict]:
                 })
 
     return results
+
+async def fetch_olx_data(search_url: str):
+    """
+    Упрощённая функция статистики,
+    использует fetch_olx_ads.
+    """
+
+    ads = await fetch_olx_ads(search_url, max_pages=1)
+
+    prices = [ad["price"] for ad in ads if ad["price"] > 0]
+
+    if not prices:
+        return {
+            "items_count": 0,
+            "min_price": 0,
+            "max_price": 0,
+            "avg_price": 0
+        }
+
+    return {
+        "items_count": len(prices),
+        "min_price": min(prices),
+        "max_price": max(prices),
+        "avg_price": int(sum(prices) / len(prices))
+    }
